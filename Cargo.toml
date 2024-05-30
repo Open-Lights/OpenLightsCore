@@ -1,7 +1,7 @@
 [package]
-name = "eframe_template"
+name = "open_lights_core"
 version = "0.1.0"
-authors = ["Emil Ernerfeldt <emil.ernerfeldt@gmail.com>"]
+authors = ["QPCrummer"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]
 rust-version = "1.76"
@@ -12,6 +12,13 @@ targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
 
 [dependencies]
 egui = "0.27.0"
+
+egui_extras = { version = "*", features = ["all_loaders"] }
+image = { version = "0.24", default-features = false, features = [
+    "jpeg",
+    "png",
+] }
+
 eframe = { version = "0.27.0", default-features = false, features = [
     "accesskit",     # Make egui comptaible with screen readers. NOTE: adds a lot of dependencies.
     "default_fonts", # Embed the default egui fonts.
@@ -23,9 +30,17 @@ log = "0.4"
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 
+rodio = "0.18.1"
+lofty = "0.19.2"
+hound = "3.5.1"
+
+walkdir = "2.5.0"
+rand = "0.9.0-alpha.1"
+shuffle = "0.1.7"
+
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-env_logger = "0.10"
+env_logger = "0.11.3"
 
 # web:
 [target.'cfg(target_arch = "wasm32")'.dependencies]
