@@ -2,10 +2,10 @@ use std::fs;
 use crate::constants;
 
 pub fn initialize_files() {
-    fs::create_dir_all(constants::PLAYLIST_DIRECTORY)?;
+    fs::create_dir_all(constants::PLAYLIST_DIRECTORY).unwrap();
 }
 
-pub fn initialize_songs(playlist: String) {
+pub fn initialize_playlists() {
     
 }
 

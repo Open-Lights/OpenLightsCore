@@ -35,8 +35,9 @@ lofty = "0.19.2"
 hound = "3.5.1"
 
 walkdir = "2.5.0"
-rand = "0.9.0-alpha.1"
+rand = "0.8.5"
 shuffle = "0.1.7"
+getrandom = {  version = "0.2.11", features = ["js"] }
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -56,11 +57,3 @@ opt-level = 2
 
 
 [patch.crates-io]
-
-# If you want to use the bleeding edge version of egui and eframe:
-# egui = { git = "https://github.com/emilk/egui", branch = "master" }
-# eframe = { git = "https://github.com/emilk/egui", branch = "master" }
-
-# If you fork https://github.com/emilk/egui you can test with:
-# egui = { path = "../egui/crates/egui" }
-# eframe = { path = "../egui/crates/eframe" }
