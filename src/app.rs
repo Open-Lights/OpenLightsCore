@@ -2,10 +2,11 @@ use std::fs;
 use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+
 use egui::{CentralPanel, FontFamily, FontId, RichText, ScrollArea, TextStyle, Ui};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::{AudioPlayer, load_songs_from_playlist, locate_playlists};
+use crate::audio_player::{AudioPlayer, load_songs_from_playlist};
 use crate::constants;
 use crate::constants::PLAYLIST_DIRECTORY;
 
@@ -110,12 +111,12 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for option in PLAYLISTS {
+                        for option in &self.audio_player.playlist_vec {
                             if ui.add(egui::SelectableLabel::new(
-                                self.playlist == option,
-                                &option,
+                                &self.playlist == option,
+                                &*option,
                             )).clicked() {
-                                self.playlist = option;
+                                self.playlist = String::from(option);
                             };
                             ui.add_space(10.);
                         }
@@ -169,9 +170,9 @@ impl OpenLightsCore {
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
                         let current_song = self.audio_player.get_current_song();
-                        for song in self.audio_player.song_vec {
+                        for song in &self.audio_player.song_vec {
                             if ui.add(egui::SelectableLabel::new(
-                                &current_song == &song,
+                                &current_song == song,
                                 format!("{} by {}", song.name, song.artist),
                             )).clicked() {
                                 self.audio_player.song_override(song);
@@ -246,11 +247,9 @@ impl eframe::App for OpenLightsCore {
     /// Called by the framework to save state before shutdown.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         // TODO Determine if saving is important
-        //eframe::set_value(storage, eframe::APP_KEY, self);
+        eframe::set_value(storage, eframe::APP_KEY, self);
     }
 }
-
-const PLAYLISTS: Vec<String> = locate_playlists(PLAYLIST_DIRECTORY);
 
 struct FileExplorer {
     current_path: PathBuf,

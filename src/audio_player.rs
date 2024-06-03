@@ -14,6 +14,7 @@ use rodio::{Decoder, OutputStream, Sink};
 use shuffle::irs::Irs;
 use shuffle::shuffler::Shuffler;
 use walkdir::WalkDir;
+use crate::constants::PLAYLIST_DIRECTORY;
 
 #[derive(Clone, Default)]
 struct Song {
@@ -39,6 +40,7 @@ impl Song {
 }
 
 pub struct AudioPlayer {
+    pub(crate) playlist_vec: Vec<String>,
     pub(crate) song_vec: Vec<Song>,
     pub(crate) playing: bool,
     song_loaded: bool,
@@ -52,6 +54,7 @@ impl Default for AudioPlayer {
     fn default() -> Self {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         Self {
+            playlist_vec: locate_playlists(PLAYLIST_DIRECTORY),
             song_vec: Vec::new(),
             playing: false,
             song_loaded: false,
@@ -101,8 +104,8 @@ impl AudioPlayer {
         self.song_vec = songs;
     }
 
-    pub fn get_song_index(&mut self, song: Song) -> usize {
-        self.song_vec.iter().position(|&x| x == song).unwrap()
+    pub fn get_song_index(&mut self, song: &Song) -> usize {
+        self.song_vec.iter().position(|x| x == song).unwrap()
     }
 
     pub fn get_current_position_seconds(&mut self) -> i32 {
@@ -131,7 +134,7 @@ impl AudioPlayer {
         self.song_vec.get(self.song_index).unwrap().clone()
     }
 
-    pub fn song_override(&mut self, song: Song) {
+    pub fn song_override(&mut self, song: &Song) {
         self.pause();
         let index = self.get_song_index(song);
         self.song_index = index;
@@ -164,7 +167,8 @@ pub fn load_songs_from_playlist(playlist: &String) {
     let path = format!("/open_lights/playlists/{}/", playlist);
 
     for file in WalkDir::new(&path) {
-        let song_path = file.unwrap().path().to_str().expect("Invalid UTF-8 sequence");
+        let song_file = file.unwrap();
+        let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
         let data = gather_metadata(&song_path);
         let song = Song::new(&song_path, data.1, data.0);
         songs.push(song);
@@ -179,13 +183,13 @@ fn gather_metadata(path: &str) -> (f64, String) {
 
     let mut reader = BufReader::new(File::open(path).unwrap());
     let tagged_file = Probe::new(&mut reader).guess_file_type().unwrap().read().unwrap();
-    let metadata = if let Some(tag) = tagged_file.primary_tag() {
-        let author = tag.artist().as_deref().unwrap_or("Unknown");
+    if let Some(tag) = tagged_file.primary_tag() {
+        let artist = tag.artist();
+        let author = artist.as_deref().unwrap_or("Unknown");
         (duration_seconds, String::from(author))
     } else {
         (duration_seconds, String::from("Unknown"))
-    };
-    metadata
+    }
 }
 
 pub fn locate_playlists(path: &str) -> Vec<String> {
