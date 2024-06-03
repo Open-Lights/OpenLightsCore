@@ -1,5 +1,4 @@
 use std::fs;
-use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -114,7 +113,7 @@ impl OpenLightsCore {
                         for option in &self.audio_player.playlist_vec {
                             if ui.add(egui::SelectableLabel::new(
                                 &self.playlist == option,
-                                &*option,
+                                option,
                             )).clicked() {
                                 self.playlist = String::from(option);
                             };
@@ -123,11 +122,9 @@ impl OpenLightsCore {
                     });
 
                 ui.add_space(30.);
-                if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() {
-                    if self.playlist != String::from("") {
-                        load_songs_from_playlist(&self.playlist);
-                        self.current_screen = Screen::Jukebox;
-                    }
+                if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != *"" {
+                    load_songs_from_playlist(&self.playlist);
+                    self.current_screen = Screen::Jukebox;
                 };
             });
 
@@ -170,7 +167,7 @@ impl OpenLightsCore {
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
                         let current_song = self.audio_player.get_current_song();
-                        for song in &self.audio_player.song_vec {
+                        for song in &self.audio_player.song_vec.clone() {
                             if ui.add(egui::SelectableLabel::new(
                                 &current_song == song,
                                 format!("{} by {}", song.name, song.artist),
@@ -253,7 +250,7 @@ impl eframe::App for OpenLightsCore {
 
 struct FileExplorer {
     current_path: PathBuf,
-    entries: Vec<DirEntry>,
+    entries: Vec<PathBuf>,
     error_message: Option<String>,
 }
 
@@ -268,19 +265,19 @@ impl FileExplorer {
         }
     }
 
-    fn read_directory(path: &Path) -> Result<Vec<DirEntry>, std::io::Error> {
+    fn read_directory(path: &Path) -> Result<Vec<PathBuf>, std::io::Error> {
         let mut entries = vec![];
         for entry in fs::read_dir(path)? {
-            let entry = entry?;
+            let entry = entry?.path();
             entries.push(entry);
         }
         Ok(entries)
     }
 
-    fn navigate_to(&mut self, path: PathBuf) {
-        match Self::read_directory(&path) {
+    fn navigate_to(&mut self, path: &PathBuf) {
+        match Self::read_directory(path) {
             Ok(entries) => {
-                self.current_path = path;
+                self.current_path = path.clone();
                 self.entries = entries;
                 self.error_message = None;
             }
@@ -292,7 +289,7 @@ impl FileExplorer {
 
     fn go_up(&mut self) {
         if let Some(parent) = self.current_path.parent() {
-            self.navigate_to(parent.to_path_buf());
+            self.navigate_to(&parent.to_owned());
         }
     }
 
@@ -300,7 +297,7 @@ impl FileExplorer {
         if let Err(e) = fs::remove_file(path) {
             self.error_message = Some(format!("Error deleting file: {}", e));
         } else {
-            self.navigate_to(self.current_path.clone());
+            self.navigate_to(&self.current_path.clone());
         }
     }
 
@@ -316,18 +313,17 @@ impl FileExplorer {
         }
 
         ScrollArea::vertical().show(ui, |ui| {
-            for entry in &self.entries {
-                let file_name = entry.file_name();
-                let file_name_str = file_name.to_string_lossy();
+            for entry in &self.entries.clone() {
+                let file_name_str = entry.to_string_lossy();
                 ui.horizontal(|ui| {
-                    if entry.path().is_dir() {
+                    if entry.is_dir() {
                         if ui.button(format!("📁 {}", file_name_str)).clicked() {
-                            self.navigate_to(entry.path());
+                            self.navigate_to(entry);
                         }
                     } else {
                         ui.label(format!("📄 {}", file_name_str));
                         if ui.button("Delete").clicked() {
-                            self.delete_entry(&entry.path());
+                            self.delete_entry(entry);
                         }
                     }
                 });
@@ -341,10 +337,10 @@ impl FileExplorer {
 
     fn handle_file_input(&mut self, file_name: &str) {
         let destination = self.current_path.join(file_name);
-        if let Err(e) = fs::write(&destination, "") { // Create an empty file
+        if let Err(e) = fs::write(destination, "") { // Create an empty file
             self.error_message = Some(format!("Error creating file: {}", e));
         } else {
-            self.navigate_to(self.current_path.clone());
+            self.navigate_to(&self.current_path.clone());
         }
     }
 }
