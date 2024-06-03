@@ -17,11 +17,11 @@ use walkdir::WalkDir;
 use crate::constants::PLAYLIST_DIRECTORY;
 
 #[derive(Clone, Default)]
-struct Song {
-    pub(crate) name: String,
-    pub(crate) artist: String,
+pub struct Song {
+    pub name: String,
+    pub artist: String,
     path: PathBuf,
-    pub(crate) duration: f64,
+    pub duration: f64,
 }
 
 
@@ -40,12 +40,12 @@ impl Song {
 }
 
 pub struct AudioPlayer {
-    pub(crate) playlist_vec: Vec<String>,
-    pub(crate) song_vec: Vec<Song>,
-    pub(crate) playing: bool,
+    pub playlist_vec: Vec<String>,
+    pub song_vec: Vec<Song>,
+    pub playing: bool,
     song_loaded: bool,
     song_index: usize,
-    pub(crate) looping: bool,
+    pub looping: bool,
     millisecond_position: f64,
     sink: Sink,
 }
@@ -166,11 +166,11 @@ pub fn load_songs_from_playlist(playlist: &String) {
     let mut songs: Vec<Song> = Vec::new();
     let path = format!("/open_lights/playlists/{}/", playlist);
 
-    for file in WalkDir::new(&path) {
+    for file in WalkDir::new(path) {
         let song_file = file.unwrap();
         let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
-        let data = gather_metadata(&song_path);
-        let song = Song::new(&song_path, data.1, data.0);
+        let data = gather_metadata(song_path);
+        let song = Song::new(song_path, data.1, data.0);
         songs.push(song);
     }
 }
