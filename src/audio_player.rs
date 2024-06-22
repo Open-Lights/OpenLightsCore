@@ -47,6 +47,7 @@ pub struct AudioPlayer {
     song_index: usize,
     pub looping: bool,
     millisecond_position: f64,
+    volume: f32,
     sink: Sink,
 }
 
@@ -54,13 +55,14 @@ impl Default for AudioPlayer {
     fn default() -> Self {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         Self {
-            playlist_vec: locate_playlists(PLAYLIST_DIRECTORY),
+            playlist_vec: locate_playlists(&**PLAYLIST_DIRECTORY),
             song_vec: Vec::new(),
             playing: false,
             song_loaded: false,
             song_index: 0,
             looping: false,
             millisecond_position: 0.,
+            volume: 100.,
             sink: Sink::try_new(&stream_handle).unwrap(),
         }
     }
@@ -121,12 +123,13 @@ impl AudioPlayer {
         self.play();
     }
 
-    fn set_volume(&mut self, new_volume: f32) {
-        self.sink.set_volume(new_volume);
+    pub fn set_volume(&mut self, new_volume: f32) {
+        self.volume = new_volume;
+        self.sink.set_volume(self.volume);
     }
 
-    fn get_volume(&mut self) -> f32 {
-        self.sink.volume()
+    pub fn get_volume(&mut self) -> f32 {
+        self.volume
     }
 
     pub fn get_current_song(&mut self) -> Song {
@@ -160,22 +163,25 @@ impl AudioPlayer {
         self.play();
         // TODO Set ms time
     }
-}
 
-pub fn load_songs_from_playlist(playlist: &String) {
-    let mut songs: Vec<Song> = Vec::new();
-    let path = format!("/open_lights/playlists/{}/", playlist);
+    pub fn load_songs_from_playlist(&mut self, playlist: &String) {
+        let mut songs: Vec<Song> = Vec::new();
+        let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, playlist);
 
-    for file in WalkDir::new(path) {
-        let song_file = file.unwrap();
-        let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
-        let data = gather_metadata(song_path);
-        let song = Song::new(song_path, data.1, data.0);
-        songs.push(song);
+        for file in WalkDir::new(path).min_depth(2).max_depth(3) {
+            let song_file = file.unwrap();
+            let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
+            let data = gather_metadata(song_path);
+            let song = Song::new(song_path, data.1, data.0);
+            songs.push(song);
+        }
+
+        self.song_vec = songs;
     }
 }
 
 fn gather_metadata(path: &str) -> (f64, String) {
+    println!("{}", path);
     let wav_reader = hound::WavReader::open(path).unwrap();
     let spec = wav_reader.spec();
     let duration = wav_reader.duration();

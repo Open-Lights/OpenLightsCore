@@ -2268,6 +2268,7 @@ dependencies = [
  "image",
  "lofty",
  "log",
+ "once_cell",
  "rand",
  "rodio",
  "serde",

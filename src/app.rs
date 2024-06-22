@@ -2,10 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use egui::{CentralPanel, FontFamily, FontId, RichText, ScrollArea, TextStyle, Ui};
+use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::{AudioPlayer, load_songs_from_playlist};
+use crate::audio_player::{AudioPlayer};
 use crate::constants;
 use crate::constants::PLAYLIST_DIRECTORY;
 
@@ -33,7 +33,7 @@ impl Default for OpenLightsCore {
     fn default() -> Self {
         Self {
             playlist: String::from(""),
-            current_screen: Screen::Playlist,
+            current_screen: Screen::default(),
             audio_player: AudioPlayer::new(),
             progress: 0.0,
         }
@@ -84,16 +84,12 @@ impl OpenLightsCore {
     }
 
     fn show_playlist_screen(&mut self, ctx: &egui::Context) {
-        // Put your widgets into a `SidePanel`, `TopBottomPanel`, `CentralPanel`, `Window` or `Area`.
-        // For inspiration and more examples, go to https://emilk.github.io/egui
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // The top panel is often a good place for a menu bar:
             self.top_menu(ui);
         });
 
         CentralPanel::default().show(ctx, |ui| {
-            // The central panel the region left after adding TopPanel's and SidePanel's
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 ui.add(
                     egui::Image::new(egui::include_image!("../assets/open_lights.png"))
@@ -123,7 +119,7 @@ impl OpenLightsCore {
 
                 ui.add_space(30.);
                 if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != *"" {
-                    load_songs_from_playlist(&self.playlist);
+                    self.audio_player.load_songs_from_playlist(&self.playlist);
                     self.current_screen = Screen::Jukebox;
                 };
             });
@@ -161,6 +157,8 @@ impl OpenLightsCore {
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                 // Playlist
+                ui.label(RichText::new("  Playlist  ").text_style(heading2()).strong().underline());
+
                 ScrollArea::vertical()
                     .auto_shrink([true, true])
                     .max_height(200.)
@@ -177,43 +175,71 @@ impl OpenLightsCore {
                             ui.add_space(10.);
                         }
                     });
+            });
+        });
+
+        egui::TopBottomPanel::bottom("bottom_taskbar").show(ctx, |ui| {
+            ui.set_height(150.0);
+
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                ui.separator();
+
+                // Song Title
+                ui.label("Song by Artist");
 
                 // Loading Bar
-                let bar = egui::ProgressBar::new(self.progress)
-                    .text(format!("{} / {}", Self::format_time(self.audio_player.get_current_position_seconds()), Self::format_time(self.audio_player.get_current_song().duration as i32)))
-                    .animate(false);
-                ui.add(bar);
-                // Controls
-                ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                    if ui.button(if self.audio_player.playing { "⏸️" } else { "▶️" }).clicked() {
-                        if self.audio_player.playing {
-                            self.audio_player.pause();
-                        } else {
-                            self.audio_player.play();
-                        }
-                    }
+                Self::centered_song_progress_display(self, ui);
 
-                    if ui.button("⏭️").clicked() {
-                        self.audio_player.next_song();
-                    }
+                // Buttons
+                Self::centered_buttons(self, ui);
 
-                    if ui.button("🔀").clicked() {
-                        self.audio_player.shuffle();
-                    }
+                // Slider
+                Self::centered_volume_slider(self, ui);
 
-                    if ui.button("⏪").clicked() {
-                        self.audio_player.set_position(Duration::from_secs(0));
-                    }
-
-                    if ui.selectable_label(self.audio_player.looping, "🔁").clicked() {
-                        self.audio_player.looping = !self.audio_player.looping;
-                    }
-                })
             });
         });
     }
 
-    pub fn set_progress(&mut self, seconds: i32) {
+    fn show_file_manager_screen(&mut self, ctx: &Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            self.top_menu(ui);
+        });
+        CentralPanel::default().show(ctx, |ui| {
+            let mut explorer = FileExplorer::new(&**PLAYLIST_DIRECTORY);
+            explorer.show(ui);
+        });
+    }
+
+    fn centered_song_progress_display(&mut self, ui: &mut Ui) {
+        let bar = ProgressBar::new(self.progress).animate(false);
+
+        // Get the width of the text to center it
+        let text = format!("{} / {}", Self::format_time(75), Self::format_time(120)); // Example times
+
+        // Layout the progress bar
+        ui.vertical_centered(|ui| {
+            // Add the progress bar
+            let response = ui.add(bar);
+
+            // Calculate the position to center the text
+            let rect = response.rect;
+            let text_pos = egui::pos2(
+                rect.center().x,
+                rect.center().y,
+            );
+
+            // Paint the centered text
+            ui.painter().text(
+                text_pos,
+                egui::Align2::CENTER_CENTER,
+                text,
+                FontId::proportional(12.),
+                ui.style().visuals.text_color(),
+            );
+        });
+    }
+
+    fn set_progress(&mut self, seconds: i32) {
         self.progress = (seconds as f64 / self.audio_player.get_current_song().duration) as f32;
     }
 
@@ -223,11 +249,56 @@ impl OpenLightsCore {
         format!("{:02}:{:02}", minutes, remaining_seconds)
     }
 
-    fn show_file_manager_screen(&mut self, ctx: &egui::Context) {
-        CentralPanel::default().show(ctx, |ui| {
-            let mut explorer = FileExplorer::new(PLAYLIST_DIRECTORY);
-            explorer.show(ui);
+    fn centered_buttons(&mut self, ui: &mut Ui) {
+        let button_count = 5;
+        let button_size = Vec2::new(40.0, 40.0); // Width and height of each button
+        let button_spacing = ui.spacing().item_spacing.x;
+        let total_button_width = button_count as f32 * button_size.x + (button_count as f32 - 1.0) * button_spacing;
+
+        // Add space to the left to center the buttons
+        let available_width = ui.available_width();
+        let left_padding = (available_width - total_button_width) / 2.0;
+
+        ui.horizontal(|ui| {
+            ui.add_space(left_padding);
+
+            if ui.add_sized(button_size, egui::Button::new("⏭")).clicked() {
+                self.audio_player.next_song();
+            }
+
+            if ui.add_sized(button_size, egui::Button::new("⏪")).clicked() {
+                self.audio_player.set_position(Duration::from_secs(0));
+            }
+
+            if ui.add_sized(button_size, egui::Button::new(if self.audio_player.playing { "⏸" } else { "▶" })).clicked() {
+                if self.audio_player.playing {
+                    self.audio_player.pause();
+                } else {
+                    self.audio_player.play();
+                }
+            }
+
+            if ui.add_sized(button_size, egui::Button::new("🔀")).clicked() {
+                self.audio_player.shuffle();
+            }
+
+            if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.looping, "🔁")).clicked() {
+                self.audio_player.looping = !self.audio_player.looping;
+            }
         });
+    }
+
+    fn centered_volume_slider(&mut self, ui: &mut Ui) {
+        let slider_width = Vec2::new(200., 50.);
+        let available_width = ui.available_width();
+        let left_padding = (available_width - slider_width.x) / 2.0;
+
+        ui.add_space(left_padding);
+
+        if ui.add_sized(slider_width, egui::Slider::new(&mut self.audio_player.get_volume(), 0.0..=100.0).suffix("%")).drag_stopped {
+            let volume = self.audio_player.get_volume();
+            self.audio_player.set_volume(volume);
+        }
     }
 }
 

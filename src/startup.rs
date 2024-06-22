@@ -1,8 +1,10 @@
 use std::fs;
-use crate::constants;
+use std::path::Path;
+
+use crate::constants::PLAYLIST_DIRECTORY;
 
 pub fn initialize_files() {
-    fs::create_dir_all(constants::PLAYLIST_DIRECTORY).unwrap();
+    fs::create_dir_all(Path::new(&*PLAYLIST_DIRECTORY)).unwrap();
 }
 
 pub fn initialize_playlists() {
