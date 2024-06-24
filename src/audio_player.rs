@@ -1,7 +1,7 @@
 use std::cmp::PartialEq;
 use std::fs;
 use std::fs::File;
-use std::io::{BufReader};
+use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -10,10 +10,11 @@ use lofty::prelude::*;
 use lofty::probe::Probe;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use shuffle::irs::Irs;
 use shuffle::shuffler::Shuffler;
 use walkdir::WalkDir;
+
 use crate::constants::PLAYLIST_DIRECTORY;
 
 #[derive(Clone, Default)]
@@ -49,6 +50,8 @@ pub struct AudioPlayer {
     millisecond_position: f64,
     volume: f32,
     sink: Sink,
+    _stream: OutputStream,
+    stream_handle: OutputStreamHandle,
 }
 
 impl Default for AudioPlayer {
@@ -64,6 +67,8 @@ impl Default for AudioPlayer {
             millisecond_position: 0.,
             volume: 100.,
             sink: Sink::try_new(&stream_handle).unwrap(),
+            _stream,
+            stream_handle,
         }
     }
 }
@@ -76,15 +81,17 @@ impl PartialEq for Song {
 
 impl AudioPlayer {
     pub fn new() -> Self {
-        Default::default()
+        Self::default()
     }
 
     fn prepare_song(&mut self) {
+        self.sink.clear();
         let song = self.get_current_song();
         let file = File::open(song.path).unwrap();
         let source = Decoder::new(BufReader::new(file)).unwrap();
         self.sink.append(source);
         self.song_loaded = true;
+        println!("Loaded a new song");
     }
 
     pub fn play(&mut self) {
@@ -100,10 +107,6 @@ impl AudioPlayer {
     pub fn pause(&mut self) {
         self.sink.pause();
         self.playing = false;
-    }
-
-    fn load_songs(mut self, songs: Vec<Song>) {
-        self.song_vec = songs;
     }
 
     pub fn get_song_index(&mut self, song: &Song) -> usize {
@@ -164,9 +167,13 @@ impl AudioPlayer {
         // TODO Set ms time
     }
 
+    pub fn toggle_looping(&mut self) {
+        self.looping = !self.looping;
+    }
+
     pub fn load_songs_from_playlist(&mut self, playlist: &String) {
         let mut songs: Vec<Song> = Vec::new();
-        let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, playlist);
+        let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, &playlist);
 
         for file in WalkDir::new(path).min_depth(2).max_depth(3) {
             let song_file = file.unwrap();
@@ -177,6 +184,7 @@ impl AudioPlayer {
         }
 
         self.song_vec = songs;
+        println!("Loaded songs from playlist: {}", &playlist);
     }
 }
 

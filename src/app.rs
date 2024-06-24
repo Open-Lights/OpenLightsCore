@@ -5,7 +5,7 @@ use std::time::Duration;
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::{AudioPlayer};
+use crate::audio_player::AudioPlayer;
 use crate::constants;
 use crate::constants::PLAYLIST_DIRECTORY;
 
@@ -27,6 +27,8 @@ pub struct OpenLightsCore {
     audio_player: AudioPlayer,
     #[serde(skip)]
     progress: f32,
+    #[serde(skip)]
+    volume: f32,
 }
 
 impl Default for OpenLightsCore {
@@ -36,6 +38,7 @@ impl Default for OpenLightsCore {
             current_screen: Screen::default(),
             audio_player: AudioPlayer::new(),
             progress: 0.0,
+            volume: 0.5,
         }
     }
 }
@@ -50,7 +53,7 @@ fn heading3() -> TextStyle {
     TextStyle::Name("ContextHeading".into())
 }
 
-fn configure_text_styles(ctx: &egui::Context) {
+fn configure_text_styles(ctx: &Context) {
     use FontFamily::Proportional;
     use TextStyle::*;
 
@@ -83,14 +86,14 @@ impl OpenLightsCore {
         Default::default()
     }
 
-    fn show_playlist_screen(&mut self, ctx: &egui::Context) {
+    fn show_playlist_screen(&mut self, ctx: &Context) {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
         });
 
         CentralPanel::default().show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 ui.add(
                     egui::Image::new(egui::include_image!("../assets/open_lights.png"))
                         .max_width(200.0)
@@ -124,7 +127,7 @@ impl OpenLightsCore {
                 };
             });
 
-            ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+            ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     ui.label("Version ");
@@ -148,14 +151,14 @@ impl OpenLightsCore {
         });
     }
 
-    fn show_jukebox_screen(&mut self, ctx: &egui::Context) {
+    fn show_jukebox_screen(&mut self, ctx: &Context) {
         // Menu Bar
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
         });
         // Center
         CentralPanel::default().show(ctx, |ui| {
-            ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 // Playlist
                 ui.label(RichText::new("  Playlist  ").text_style(heading2()).strong().underline());
 
@@ -239,7 +242,7 @@ impl OpenLightsCore {
         });
     }
 
-    fn set_progress(&mut self, seconds: i32) {
+    pub fn set_progress(&mut self, seconds: i32) {
         self.progress = (seconds as f64 / self.audio_player.get_current_song().duration) as f32;
     }
 
@@ -283,7 +286,7 @@ impl OpenLightsCore {
             }
 
             if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.looping, "🔁")).clicked() {
-                self.audio_player.looping = !self.audio_player.looping;
+                self.audio_player.toggle_looping();
             }
         });
     }
@@ -295,16 +298,15 @@ impl OpenLightsCore {
 
         ui.add_space(left_padding);
 
-        if ui.add_sized(slider_width, egui::Slider::new(&mut self.audio_player.get_volume(), 0.0..=100.0).suffix("%")).drag_stopped {
-            let volume = self.audio_player.get_volume();
-            self.audio_player.set_volume(volume);
+        if ui.add_sized(slider_width, egui::Slider::new(&mut self.volume, 0.0..=100.).suffix("%")).drag_stopped {
+            self.audio_player.set_volume((self.volume) / 100.0);
         }
     }
 }
 
 impl eframe::App for OpenLightsCore {
     /// Called each time the UI needs repainting, which may be many times per second.
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
         match self.current_screen {
             Screen::Playlist => self.show_playlist_screen(ctx),
             Screen::Jukebox => self.show_jukebox_screen(ctx),
