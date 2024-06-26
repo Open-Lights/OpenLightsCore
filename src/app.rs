@@ -24,9 +24,7 @@ pub struct OpenLightsCore {
     #[serde(skip)]
     current_screen: Screen,
     #[serde(skip)]
-    audio_player: AudioPlayer,
-    #[serde(skip)]
-    progress: f32,
+    pub audio_player: AudioPlayer,
     #[serde(skip)]
     volume: f32,
 }
@@ -37,7 +35,6 @@ impl Default for OpenLightsCore {
             playlist: String::from(""),
             current_screen: Screen::default(),
             audio_player: AudioPlayer::new(),
-            progress: 0.0,
             volume: 0.5,
         }
     }
@@ -123,6 +120,7 @@ impl OpenLightsCore {
                 ui.add_space(30.);
                 if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != *"" {
                     self.audio_player.load_songs_from_playlist(&self.playlist);
+                    self.audio_player.start_worker_thread();
                     self.current_screen = Screen::Jukebox;
                 };
             });
@@ -152,6 +150,8 @@ impl OpenLightsCore {
     }
 
     fn show_jukebox_screen(&mut self, ctx: &Context) {
+        ctx.request_repaint_after(Duration::from_millis(500));
+
         // Menu Bar
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
@@ -214,10 +214,10 @@ impl OpenLightsCore {
     }
 
     fn centered_song_progress_display(&mut self, ui: &mut Ui) {
-        let bar = ProgressBar::new(self.progress).animate(false);
+        let bar = ProgressBar::new(self.audio_player.get_progress()).animate(false);
 
         // Get the width of the text to center it
-        let text = format!("{} / {}", Self::format_time(75), Self::format_time(120)); // Example times
+        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(self.audio_player.get_ms_pos())), Self::format_time(self.audio_player.get_current_song().duration as i32));
 
         // Layout the progress bar
         ui.vertical_centered(|ui| {
@@ -242,14 +242,13 @@ impl OpenLightsCore {
         });
     }
 
-    pub fn set_progress(&mut self, seconds: i32) {
-        self.progress = (seconds as f64 / self.audio_player.get_current_song().duration) as f32;
-    }
-
     fn format_time(seconds: i32) -> String {
         let minutes = seconds / 60;
         let remaining_seconds = seconds % 60;
         format!("{:02}:{:02}", minutes, remaining_seconds)
+    }
+    fn milliseconds_to_seconds(ms: u128) -> i32 {
+        (ms / 1000) as i32
     }
 
     fn centered_buttons(&mut self, ui: &mut Ui) {
@@ -273,8 +272,9 @@ impl OpenLightsCore {
                 self.audio_player.set_position(Duration::from_secs(0));
             }
 
-            if ui.add_sized(button_size, egui::Button::new(if self.audio_player.playing { "⏸" } else { "▶" })).clicked() {
-                if self.audio_player.playing {
+
+            if ui.add_sized(button_size, egui::Button::new(if self.audio_player.is_playing()  { "⏸" } else { "▶" })).clicked() {
+                if self.audio_player.is_playing()  {
                     self.audio_player.pause();
                 } else {
                     self.audio_player.play();
@@ -285,7 +285,7 @@ impl OpenLightsCore {
                 self.audio_player.shuffle();
             }
 
-            if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.looping, "🔁")).clicked() {
+            if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.is_looping(), "🔁")).clicked() {
                 self.audio_player.toggle_looping();
             }
         });

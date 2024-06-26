@@ -30,7 +30,7 @@ log = "0.4"
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 
-rodio = "0.18.1"
+rodio = {git = "https://github.com/RustAudio/rodio.git"}
 lofty = "0.20.0"
 hound = "3.5.1"
 once_cell = "1.19.0"
