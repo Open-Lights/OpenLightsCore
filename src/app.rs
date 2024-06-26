@@ -35,7 +35,7 @@ impl Default for OpenLightsCore {
             playlist: String::from(""),
             current_screen: Screen::default(),
             audio_player: AudioPlayer::new(),
-            volume: 0.5,
+            volume: 1.0,
         }
     }
 }
@@ -293,12 +293,8 @@ impl OpenLightsCore {
 
     fn centered_volume_slider(&mut self, ui: &mut Ui) {
         let slider_width = Vec2::new(200., 50.);
-        let available_width = ui.available_width();
-        let left_padding = (available_width - slider_width.x) / 2.0;
 
-        ui.add_space(left_padding);
-
-        if ui.add_sized(slider_width, egui::Slider::new(&mut self.volume, 0.0..=100.).suffix("%")).drag_stopped {
+        if ui.add_sized(slider_width, egui::Slider::new(&mut self.volume, 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
             self.audio_player.set_volume((self.volume) / 100.0);
         }
     }

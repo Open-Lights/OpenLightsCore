@@ -235,6 +235,7 @@ impl AudioPlayer {
         let saved_pos = Arc::clone(&self.millisecond_position);
         let progress = Arc::clone(&self.progress);
         let duration = Arc::clone(&self.song_duration);
+        let looping = Arc::clone(&self.looping);
 
         thread::spawn(move || {
             while *thread_alive.lock().unwrap() {
@@ -249,8 +250,15 @@ impl AudioPlayer {
                     let mut progress_guard = progress.lock().unwrap();
                     let duration_guard = duration.lock().unwrap();
                     *progress_guard = (seconds as f64 / *duration_guard) as f32;
-                    // Update GUI
-                    // TODO ?
+                    // Check for song finished
+                    if *progress_guard == 1.0 {
+                        let looping_guard = looping.lock().unwrap();
+                        if *looping_guard {
+                            // TODO run prepare_song()
+                        } else {
+                            // TODO run next_song()
+                        }
+                    }
                 }
                 thread::sleep(Duration::from_millis(10));
             }
