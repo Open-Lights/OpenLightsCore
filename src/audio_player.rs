@@ -31,7 +31,7 @@ impl Song {
     fn new(path: &str, artist: String, duration: f64) -> Self {
         let path_ref = Path::new(&path);
         let path: PathBuf = path_ref.to_path_buf();
-        let name: String = path.file_name().unwrap().to_string_lossy().into_owned();
+        let name: String = path.file_stem().unwrap().to_string_lossy().into_owned().replace('_', " ");
         Self {
             name,
             artist,
@@ -102,7 +102,6 @@ impl AudioPlayer {
         let source = Decoder::new(BufReader::new(file)).unwrap();
         sink_guard.append(source);
         self.song_loaded = true;
-        println!("Loaded a new song");
     }
 
     pub fn play(&mut self) {

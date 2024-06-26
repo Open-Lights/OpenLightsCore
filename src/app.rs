@@ -188,7 +188,8 @@ impl OpenLightsCore {
                 ui.separator();
 
                 // Song Title
-                ui.label("Song by Artist");
+                let song = self.audio_player.get_current_song();
+                ui.label(format!("{} by {}", song.name, song.artist));
 
                 // Loading Bar
                 Self::centered_song_progress_display(self, ui);
