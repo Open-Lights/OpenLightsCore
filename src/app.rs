@@ -1,3 +1,4 @@
+use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -5,7 +6,7 @@ use std::time::Duration;
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::AudioPlayer;
+use crate::audio_player::{AudioPlayer, gather_songs_from_path, Song};
 use crate::constants;
 use crate::constants::PLAYLIST_DIRECTORY;
 
@@ -17,15 +18,11 @@ enum Screen {
     FileManager,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
 pub struct OpenLightsCore {
-    #[serde(skip)]
     playlist: String,
-    #[serde(skip)]
     current_screen: Screen,
-    #[serde(skip)]
     pub audio_player: AudioPlayer,
-    #[serde(skip)]
+    file_explorer: FileExplorer,
     volume: f32,
 }
 
@@ -35,7 +32,8 @@ impl Default for OpenLightsCore {
             playlist: String::from(""),
             current_screen: Screen::default(),
             audio_player: AudioPlayer::new(),
-            volume: 1.0,
+            file_explorer: FileExplorer::new(),
+            volume: 100.0,
         }
     }
 }
@@ -74,11 +72,6 @@ impl OpenLightsCore {
         // This is also where you can customize the look and feel of egui using
         // `cc.egui_ctx.set_visuals` and `cc.egui_ctx.set_fonts`.
         configure_text_styles(&cc.egui_ctx);
-        // Load previous app state (if any).
-        // Note that you must enable the `persistence` feature for this to work.
-        if let Some(storage) = cc.storage {
-            return eframe::get_value(storage, eframe::APP_KEY).unwrap_or_default();
-        }
 
         Default::default()
     }
@@ -209,8 +202,7 @@ impl OpenLightsCore {
             self.top_menu(ui);
         });
         CentralPanel::default().show(ctx, |ui| {
-            let mut explorer = FileExplorer::new(&**PLAYLIST_DIRECTORY);
-            explorer.show(ui);
+            self.file_explorer.render(ui);
         });
     }
 
@@ -310,27 +302,33 @@ impl eframe::App for OpenLightsCore {
             Screen::FileManager => self.show_file_manager_screen(ctx),
         }
     }
+}
 
-    /// Called by the framework to save state before shutdown.
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        // TODO Determine if saving is important
-        eframe::set_value(storage, eframe::APP_KEY, self);
-    }
+#[derive(PartialEq, Default)]
+enum Selection {
+    #[default]
+    Playlist,
+    Song,
 }
 
 struct FileExplorer {
-    current_path: PathBuf,
-    entries: Vec<PathBuf>,
+    selection: Selection,
+    playlists: Vec<PathBuf>,
+    songs: Vec<Song>,
+    selected_index: usize,
+    show_edit_buttons: bool,
     error_message: Option<String>,
 }
 
 impl FileExplorer {
-    fn new(start_path: &str) -> Self {
-        let start_path = PathBuf::from(start_path);
-        let entries = Self::read_directory(&start_path).unwrap_or_else(|_| vec![]);
+    fn new() -> Self {
+        let playlists = Self::read_directory((&PLAYLIST_DIRECTORY).as_ref()).unwrap_or_else(|_| vec![]);
         Self {
-            current_path: start_path,
-            entries,
+            selection: Selection::Playlist,
+            playlists,
+            songs: Vec::new(),
+            selected_index: 0,
+            show_edit_buttons: false,
             error_message: None,
         }
     }
@@ -344,73 +342,94 @@ impl FileExplorer {
         Ok(entries)
     }
 
-    fn navigate_to(&mut self, path: &PathBuf) {
-        match Self::read_directory(path) {
-            Ok(entries) => {
-                self.current_path = path.clone();
-                self.entries = entries;
-                self.error_message = None;
-            }
-            Err(e) => {
-                self.error_message = Some(format!("Error: {}", e));
-            }
-        }
-    }
+    fn render(&mut self, ui: &mut Ui) {
+        CentralPanel::default().show(ui.ctx(), |ui| {
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                // Playlist
+                ui.label(RichText::new("  Playlist  ").text_style(heading2()).strong().underline());
 
-    fn go_up(&mut self) {
-        if let Some(parent) = self.current_path.parent() {
-            self.navigate_to(&parent.to_owned());
-        }
-    }
-
-    fn delete_entry(&mut self, path: &Path) {
-        if let Err(e) = fs::remove_file(path) {
-            self.error_message = Some(format!("Error deleting file: {}", e));
-        } else {
-            self.navigate_to(&self.current_path.clone());
-        }
-    }
-
-    fn show(&mut self, ui: &mut Ui) {
-        ui.label(format!("Current Path: {:?}", self.current_path));
-
-        if ui.button("Go Up").clicked() {
-            self.go_up();
-        }
-
-        if ui.button("Add File").clicked() {
-            // TODO Add a way to open file manager
-        }
-
-        ScrollArea::vertical().show(ui, |ui| {
-            for entry in &self.entries.clone() {
-                let file_name_str = entry.to_string_lossy();
-                ui.horizontal(|ui| {
-                    if entry.is_dir() {
-                        if ui.button(format!("📁 {}", file_name_str)).clicked() {
-                            self.navigate_to(entry);
+                ScrollArea::vertical()
+                    .auto_shrink([true, true])
+                    .max_height(200.)
+                    .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        match self.selection {
+                            Selection::Playlist => {
+                                self.render_playlists(ui);
+                            }
+                            Selection::Song => {
+                                self.render_songs(ui);
+                            }
                         }
-                    } else {
-                        ui.label(format!("📄 {}", file_name_str));
-                        if ui.button("Delete").clicked() {
-                            self.delete_entry(entry);
+                    });
+
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    if self.show_edit_buttons {
+                        if ui.add_sized(Vec2::new(70.0, 20.0), egui::Button::new("Delete")).clicked() {
+                            self.remove_current_selected();
+                        }
+                    }
+                    if self.selection == Selection::Song {
+                        if ui.add_sized(Vec2::new(90.0, 20.0), egui::Button::new("Playlists")).clicked() {
+                            self.selected_index = 0;
+                            self.show_edit_buttons = false;
+                            self.selection = Selection::Playlist;
                         }
                     }
                 });
-            }
+            });
         });
+    }
 
-        if let Some(ref error_message) = self.error_message {
-            ui.label(error_message);
+    fn render_playlists(&mut self, ui: &mut Ui) {
+        for (index, path) in self.playlists.iter().enumerate() {
+            let label = ui.add(egui::SelectableLabel::new(
+                index == self.selected_index,
+                format!("{}", path.file_stem().unwrap().to_string_lossy().into_owned().replace('_', " ")),
+            ));
+
+            if label.clicked() {
+                self.show_edit_buttons = true;
+                self.selected_index = index;
+            }
+
+            if label.double_clicked() {
+                self.selection = Selection::Song;
+                self.selected_index = 0;
+                self.songs = gather_songs_from_path(&path.to_string_lossy().into_owned());
+            }
+            ui.add_space(10.);
         }
     }
 
-    fn handle_file_input(&mut self, file_name: &str) {
-        let destination = self.current_path.join(file_name);
-        if let Err(e) = fs::write(destination, "") { // Create an empty file
-            self.error_message = Some(format!("Error creating file: {}", e));
-        } else {
-            self.navigate_to(&self.current_path.clone());
+    fn render_songs(&mut self, ui: &mut Ui) {
+        for (index, song) in self.songs.iter().enumerate() {
+            if ui.add(egui::SelectableLabel::new(
+                index == self.selected_index,
+                format!("{} by {}", song.name, song.artist),
+            )).clicked() {
+                self.show_edit_buttons = true;
+                self.selected_index = index;
+            };
+            ui.add_space(10.);
+        }
+    }
+
+    fn remove_current_selected(&mut self) {
+        match self.selection {
+            Selection::Playlist => {
+                let path = self.playlists.get(self.selected_index).unwrap();
+                fs::remove_dir_all(path).expect("Failed to delete playlist");
+                self.playlists.remove(self.selected_index);
+                self.selected_index = 0;
+            }
+            Selection::Song => {
+                let song = self.songs.get(self.selected_index).unwrap();
+                let path = song.path.parent().unwrap();
+                fs::remove_dir_all(path).expect("Failed to delete song");
+                self.songs.remove(self.selected_index);
+                self.selected_index = 0;
+            }
         }
     }
 }
