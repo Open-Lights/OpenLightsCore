@@ -1,12 +1,13 @@
 use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::{AudioPlayer, gather_songs_from_path, Song};
+use crate::audio_player::{AudioPlayer, gather_songs_from_path, Song, start_worker_thread};
 use crate::constants;
 use crate::constants::PLAYLIST_DIRECTORY;
 
@@ -21,18 +22,24 @@ enum Screen {
 pub struct OpenLightsCore {
     playlist: String,
     current_screen: Screen,
-    pub audio_player: AudioPlayer,
     file_explorer: FileExplorer,
+    pub audio_player: Arc<Mutex<AudioPlayer>>,
     volume: f32,
 }
 
 impl Default for OpenLightsCore {
     fn default() -> Self {
+        let audio_player = Arc::new(Mutex::new(AudioPlayer::new()));
+
+        // TODO This line causes the GUI to not display
+        // I think the issue is that the audio_player resource is being hogged and prevents the application from loading.
+        start_worker_thread(Arc::clone(&audio_player));
+
         Self {
             playlist: String::from(""),
             current_screen: Screen::default(),
-            audio_player: AudioPlayer::new(),
             file_explorer: FileExplorer::new(),
+            audio_player,
             volume: 100.0,
         }
     }
@@ -79,8 +86,11 @@ impl OpenLightsCore {
     fn show_playlist_screen(&mut self, ctx: &Context) {
 
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            self.top_menu(ui);
+            let _ = &self.top_menu(ui);
         });
+
+        let binding = &self.audio_player;
+        let player_guard = binding.lock().unwrap();
 
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
@@ -99,7 +109,7 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for option in &self.audio_player.playlist_vec {
+                        for option in &player_guard.playlist_vec {
                             if ui.add(egui::SelectableLabel::new(
                                 &self.playlist == option,
                                 option,
@@ -112,8 +122,6 @@ impl OpenLightsCore {
 
                 ui.add_space(30.);
                 if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != *"" {
-                    self.audio_player.load_songs_from_playlist(&self.playlist);
-                    self.audio_player.start_worker_thread();
                     self.current_screen = Screen::Jukebox;
                 };
             });
@@ -149,6 +157,15 @@ impl OpenLightsCore {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
         });
+
+        let current_song;
+        let song_vec;
+        {
+            let binding = &self.audio_player;
+            let mut player_guard = binding.lock().unwrap();
+            current_song = player_guard.get_current_song();
+            song_vec = player_guard.song_vec.clone();
+        }
         // Center
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
@@ -160,13 +177,14 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        let current_song = self.audio_player.get_current_song();
-                        for song in &self.audio_player.song_vec.clone() {
+                        for song in &song_vec.clone() {
                             if ui.add(egui::SelectableLabel::new(
                                 &current_song == song,
                                 format!("{} by {}", song.name, song.artist),
                             )).clicked() {
-                                self.audio_player.song_override(song);
+                                let binding = &self.audio_player;
+                                let mut player_guard = binding.lock().unwrap();
+                                player_guard.song_override(song);
                             };
                             ui.add_space(10.);
                         }
@@ -180,18 +198,32 @@ impl OpenLightsCore {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 ui.separator();
 
+                let volume = self.volume;
+
+                let binding = &self.audio_player;
+                let mut player_guard = binding.lock().unwrap();
+
+                // Extract necessary data from player_guard
+                let song = player_guard.get_current_song();
+                let progress = player_guard.progress;
+                let millisecond_position = player_guard.millisecond_position;
+                let song_duration = player_guard.get_current_song().duration as i32;
+                let playing = player_guard.playing;
+                let looping = player_guard.looping;
+
+                //drop(player_guard);
+
                 // Song Title
-                let song = self.audio_player.get_current_song();
                 ui.label(format!("{} by {}", song.name, song.artist));
 
                 // Loading Bar
-                Self::centered_song_progress_display(self, ui);
+                Self::centered_song_progress_display(ui, progress, millisecond_position, song_duration);
 
                 // Buttons
-                Self::centered_buttons(self, ui);
+                Self::centered_buttons(ui, playing, looping, &mut player_guard);
 
                 // Slider
-                Self::centered_volume_slider(self, ui);
+                Self::centered_volume_slider(volume, ui, &mut player_guard);
 
             });
         });
@@ -206,11 +238,11 @@ impl OpenLightsCore {
         });
     }
 
-    fn centered_song_progress_display(&mut self, ui: &mut Ui) {
-        let bar = ProgressBar::new(self.audio_player.get_progress()).animate(false);
+    fn centered_song_progress_display(ui: &mut Ui, progress: f32, millisecond_position: u128, song_duration: i32) {
+        let bar = ProgressBar::new(progress).animate(false);
 
         // Get the width of the text to center it
-        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(self.audio_player.get_ms_pos())), Self::format_time(self.audio_player.get_current_song().duration as i32));
+        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(millisecond_position)), Self::format_time(song_duration));
 
         // Layout the progress bar
         ui.vertical_centered(|ui| {
@@ -244,7 +276,7 @@ impl OpenLightsCore {
         (ms / 1000) as i32
     }
 
-    fn centered_buttons(&mut self, ui: &mut Ui) {
+    fn centered_buttons(ui: &mut Ui, playing: bool, looping: bool, player_guard: &mut MutexGuard<'_, AudioPlayer>) {
         let button_count = 5;
         let button_size = Vec2::new(40.0, 40.0); // Width and height of each button
         let button_spacing = ui.spacing().item_spacing.x;
@@ -258,37 +290,37 @@ impl OpenLightsCore {
             ui.add_space(left_padding);
 
             if ui.add_sized(button_size, egui::Button::new("⏭")).clicked() {
-                self.audio_player.next_song();
+                player_guard.next_song();
             }
 
             if ui.add_sized(button_size, egui::Button::new("⏪")).clicked() {
-                self.audio_player.set_position(Duration::from_secs(0));
+                player_guard.set_position(Duration::from_secs(0));
             }
 
 
-            if ui.add_sized(button_size, egui::Button::new(if self.audio_player.is_playing()  { "⏸" } else { "▶" })).clicked() {
-                if self.audio_player.is_playing()  {
-                    self.audio_player.pause();
+            if ui.add_sized(button_size, egui::Button::new(if playing { "⏸" } else { "▶" })).clicked() {
+                if playing  {
+                    player_guard.pause();
                 } else {
-                    self.audio_player.play();
+                    player_guard.play();
                 }
             }
 
             if ui.add_sized(button_size, egui::Button::new("🔀")).clicked() {
-                self.audio_player.shuffle();
+                player_guard.shuffle();
             }
 
-            if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.is_looping(), "🔁")).clicked() {
-                self.audio_player.toggle_looping();
+            if ui.add_sized(button_size, egui::SelectableLabel::new(looping, "🔁")).clicked() {
+                player_guard.toggle_looping();
             }
         });
     }
 
-    fn centered_volume_slider(&mut self, ui: &mut Ui) {
+    fn centered_volume_slider(mut volume: f32, ui: &mut Ui, player_guard: &mut MutexGuard<'_, AudioPlayer>) {
         let slider_width = Vec2::new(200., 50.);
 
-        if ui.add_sized(slider_width, egui::Slider::new(&mut self.volume, 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
-            self.audio_player.set_volume((self.volume) / 100.0);
+        if ui.add_sized(slider_width, egui::Slider::new(&mut volume, 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
+            player_guard.set_volume((volume) / 100.0);
         }
     }
 }
@@ -317,7 +349,6 @@ struct FileExplorer {
     songs: Vec<Song>,
     selected_index: usize,
     show_edit_buttons: bool,
-    error_message: Option<String>,
 }
 
 impl FileExplorer {
@@ -329,7 +360,6 @@ impl FileExplorer {
             songs: Vec::new(),
             selected_index: 0,
             show_edit_buttons: false,
-            error_message: None,
         }
     }
 

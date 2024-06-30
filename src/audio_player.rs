@@ -44,19 +44,22 @@ impl Song {
 pub struct AudioPlayer {
     pub playlist_vec: Vec<String>,
     pub song_vec: Vec<Song>,
-    pub playing: Arc<Mutex<bool>>,
+    pub playing: bool,
     song_loaded: bool,
-    song_duration: Arc<Mutex<f64>>,
+    song_duration: f64,
     song_index: usize,
-    pub looping: Arc<Mutex<bool>>,
-    pub millisecond_position: Arc<Mutex<u128>>,
-    pub progress: Arc<Mutex<f32>>,
+    pub looping: bool,
+    pub millisecond_position: u128,
+    pub progress: f32,
     volume: f32,
-    pub(crate) sink: Arc<Mutex<Sink>>,
+    pub(crate) sink: Sink,
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
-    thread_alive: Arc<Mutex<bool>>,
+    thread_alive: bool,
 }
+
+unsafe impl Sync for AudioPlayer {}
+unsafe impl Send for AudioPlayer {}
 
 impl Default for AudioPlayer {
     fn default() -> Self {
@@ -64,18 +67,18 @@ impl Default for AudioPlayer {
         Self {
             playlist_vec: locate_playlists(&**PLAYLIST_DIRECTORY),
             song_vec: Vec::new(),
-            playing: Arc::new(Mutex::new(false)),
+            playing: false,
             song_loaded: false,
-            song_duration: Arc::new(Mutex::new(0.0)),
+            song_duration: 0.0,
             song_index: 0,
-            looping: Arc::new(Mutex::new(false)),
-            millisecond_position: Arc::new(Mutex::new(0)),
-            progress: Arc::new(Mutex::new(0.0)),
+            looping: false,
+            millisecond_position: 0,
+            progress: 0.0,
             volume: 100.,
-            sink: Arc::new(Mutex::new(Sink::try_new(&stream_handle).unwrap())),
+            sink: Sink::try_new(&stream_handle).unwrap(),
             _stream,
             stream_handle,
-            thread_alive: Arc::new(Mutex::new(true)),
+            thread_alive: true,
         }
     }
 }
@@ -93,26 +96,18 @@ impl AudioPlayer {
 
     fn prepare_song(&mut self) {
         let song = self.get_current_song();
-        let binding = &self.sink;
-        let sink_guard = binding.lock().unwrap();
-        sink_guard.clear();
-        let mut duration_guard = self.song_duration.lock().unwrap();
-        *duration_guard = song.duration;
+        self.sink.clear();
+        self.song_duration = song.duration;
         let file = File::open(song.path).unwrap();
         let source = Decoder::new(BufReader::new(file)).unwrap();
-        sink_guard.append(source);
+        self.sink.append(source);
         self.song_loaded = true;
     }
 
     pub fn play(&mut self) {
         if self.song_loaded {
-            let binding = &self.sink;
-            let sink_guard = binding.lock().unwrap();
-            sink_guard.play();
-
-            let binding = &self.playing;
-            let mut playing_guard = binding.lock().unwrap();
-            *playing_guard = true;
+            self.sink.play();
+            self.playing = true;
         } else {
             self.prepare_song();
             self.play();
@@ -120,13 +115,8 @@ impl AudioPlayer {
     }
 
     pub fn pause(&mut self) {
-        let binding = &self.sink;
-        let sink_guard = binding.lock().unwrap();
-        sink_guard.pause();
-
-        let binding = &self.playing;
-        let mut playing_guard = binding.lock().unwrap();
-        *playing_guard = false;
+        self.sink.pause();
+        self.playing = false;
     }
 
     pub fn get_song_index(&mut self, song: &Song) -> usize {
@@ -144,9 +134,7 @@ impl AudioPlayer {
 
     pub fn set_volume(&mut self, new_volume: f32) {
         self.volume = new_volume;
-        let binding = &self.sink;
-        let sink_guard = binding.lock().unwrap();
-        sink_guard.set_volume(self.volume);
+        self.sink.set_volume(self.volume);
     }
 
     pub fn get_volume(&mut self) -> f32 {
@@ -180,35 +168,13 @@ impl AudioPlayer {
 
     pub fn set_position(&mut self, time: Duration) {
         self.pause();
-        {
-            let binding = &self.sink;
-            let sink_guard = binding.lock().unwrap();
-            sink_guard.try_seek(time).unwrap();
-        }
+        self.sink.try_seek(time).unwrap();
         self.play();
         // TODO Set ms time
     }
 
     pub fn toggle_looping(&mut self) {
-        let binding = &self.looping;
-        let mut looping_guard = binding.lock().unwrap();
-        *looping_guard = !*looping_guard;
-    }
-
-    pub fn is_looping(&mut self) -> bool {
-        *self.looping.lock().unwrap()
-    }
-
-    pub fn is_playing(&mut self) -> bool {
-        *self.playing.lock().unwrap()
-    }
-
-    pub fn get_ms_pos(&mut self) -> u128 {
-        *self.millisecond_position.lock().unwrap()
-    }
-
-    pub fn get_progress(&mut self) -> f32 {
-        *self.progress.lock().unwrap()
+        self.looping = !self.looping;
     }
 
     pub fn load_songs_from_playlist(&mut self, playlist: &String) {
@@ -216,43 +182,33 @@ impl AudioPlayer {
         self.song_vec = gather_songs_from_path(&path);
         println!("Loaded songs from playlist: {}", &playlist);
     }
+}
 
-    pub fn start_worker_thread(&mut self) {
-        let playing = Arc::clone(&self.playing);
-        let thread_alive = Arc::clone(&self.thread_alive);
-        let sink = Arc::clone(&self.sink);
-        let saved_pos = Arc::clone(&self.millisecond_position);
-        let progress = Arc::clone(&self.progress);
-        let duration = Arc::clone(&self.song_duration);
-        let looping = Arc::clone(&self.looping);
-
-        thread::spawn(move || {
-            while *thread_alive.lock().unwrap() {
-                if *playing.lock().unwrap() {
-                    // Update song pos
-                    let sink_guard = sink.lock().unwrap();
-                    let pos = sink_guard.get_pos().as_millis();
-                    let mut pos_guard = saved_pos.lock().unwrap();
-                    *pos_guard = pos;
-                    // Set progress
-                    let seconds= pos / 1000;
-                    let mut progress_guard = progress.lock().unwrap();
-                    let duration_guard = duration.lock().unwrap();
-                    *progress_guard = (seconds as f64 / *duration_guard) as f32;
-                    // Check for song finished
-                    if *progress_guard == 1.0 {
-                        let looping_guard = looping.lock().unwrap();
-                        if *looping_guard {
-                            // TODO run prepare_song()
-                        } else {
-                            // TODO run next_song()
-                        }
+pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>) {
+    thread::spawn(move || {
+        let mut player_guard = audio_player.lock().unwrap();
+        while player_guard.thread_alive {
+            if player_guard.playing {
+                // Update song pos
+                let pos = player_guard.sink.get_pos().as_millis();
+                player_guard.millisecond_position = pos;
+                // Set progress
+                let seconds= pos / 1000;
+                player_guard.progress = (seconds as f64 / player_guard.song_duration) as f32;
+                // Check for song finished
+                if player_guard.progress == 1.0 {
+                    if player_guard.looping {
+                        // TODO run prepare_song()
+                        player_guard.prepare_song();
+                    } else {
+                        // TODO run next_song()
+                        player_guard.next_song();
                     }
                 }
-                thread::sleep(Duration::from_millis(10));
             }
-        });
-    }
+            thread::sleep(Duration::from_millis(10));
+        }
+    });
 }
 
 fn gather_metadata(path: &str) -> (f64, String) {
