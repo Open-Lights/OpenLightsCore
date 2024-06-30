@@ -2,6 +2,7 @@ use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
@@ -24,22 +25,22 @@ pub struct OpenLightsCore {
     current_screen: Screen,
     file_explorer: FileExplorer,
     pub audio_player: Arc<Mutex<AudioPlayer>>,
+    thread_alive: Arc<AtomicBool>,
     volume: f32,
 }
 
 impl Default for OpenLightsCore {
     fn default() -> Self {
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new()));
-
-        // TODO This line causes the GUI to not display
-        // I think the issue is that the audio_player resource is being hogged and prevents the application from loading.
-        start_worker_thread(Arc::clone(&audio_player));
+        let thread_alive = Arc::new(AtomicBool::new(true));
+        start_worker_thread(Arc::clone(&audio_player), Arc::clone(&thread_alive));
 
         Self {
             playlist: String::from(""),
             current_screen: Screen::default(),
             file_explorer: FileExplorer::new(),
             audio_player,
+            thread_alive,
             volume: 100.0,
         }
     }

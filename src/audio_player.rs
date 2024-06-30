@@ -4,6 +4,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use lofty::file::TaggedFileExt;
@@ -184,10 +185,10 @@ impl AudioPlayer {
     }
 }
 
-pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>) {
+pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, thread_alive: Arc<AtomicBool>) {
     thread::spawn(move || {
-        let mut player_guard = audio_player.lock().unwrap();
-        while player_guard.thread_alive {
+        while thread_alive.load(Ordering::SeqCst) {
+            let mut player_guard = audio_player.lock().unwrap();
             if player_guard.playing {
                 // Update song pos
                 let pos = player_guard.sink.get_pos().as_millis();
