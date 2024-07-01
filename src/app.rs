@@ -2,14 +2,14 @@ use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
-use crate::audio_player::{AudioPlayer, gather_songs_from_path, Song, start_worker_thread};
+use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, Song, start_worker_thread};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
 
@@ -25,18 +25,18 @@ pub struct OpenLightsCore {
     playlist: String,
     current_screen: Screen,
     file_explorer: FileExplorer,
-    pub audio_player: AudioPlayer,
+    pub audio_player: Arc<AudioPlayer>,
     messenger: Sender<AudioThreadActions>,
     volume: f32,
 }
 
 impl Default for OpenLightsCore {
     fn default() -> Self {
-        let audio_player = AudioPlayer::new();
+        let audio_player = Arc::new(AudioPlayer::new());
 
         let (tx, rx) = mpsc::channel();
         // TODO Actually make good threading improvements
-        start_worker_thread(&audio_player, rx);
+        start_worker_thread(&Arc::clone(&audio_player), rx);
 
         Self {
             playlist: String::from(""),
@@ -223,10 +223,10 @@ impl OpenLightsCore {
     }
 
     fn centered_song_progress_display(&mut self, ui: &mut Ui) {
-        let bar = ProgressBar::new(self.audio_player.progress).animate(false);
+        let bar = ProgressBar::new(get_atomic_float(&self.audio_player.progress)).animate(false);
 
         // Get the width of the text to center it
-        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(self.audio_player.millisecond_position.load(Ordering::Relaxed))), Self::format_time(self.audio_player.get_current_song().duration as i32));
+        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(self.audio_player.millisecond_position.load(Ordering::Relaxed))), Self::format_time(get_atomic_float(&self.audio_player.song_duration) as i32));
 
         // Layout the progress bar
         ui.vertical_centered(|ui| {

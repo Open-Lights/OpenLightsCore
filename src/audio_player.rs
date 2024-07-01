@@ -1,10 +1,11 @@
-use std::cmp::PartialEq;
 use std::{fs, thread};
+use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::BufReader;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
@@ -25,12 +26,12 @@ pub struct Song {
     pub name: String,
     pub artist: String,
     pub path: PathBuf,
-    pub duration: f64,
+    pub duration: f32,
 }
 
 
 impl Song {
-    fn new(path: &str, artist: String, duration: f64) -> Self {
+    fn new(path: &str, artist: String, duration: f32) -> Self {
         let path_ref = Path::new(&path);
         let path: PathBuf = path_ref.to_path_buf();
         let name: String = path.file_stem().unwrap().to_string_lossy().into_owned().replace('_', " ");
@@ -48,11 +49,11 @@ pub struct AudioPlayer {
     pub song_vec: Vec<Song>,
     pub playing: Arc<AtomicBool>,
     song_loaded: bool,
-    song_duration: f64,
+    pub song_duration: Arc<AtomicU32>,
     song_index: usize,
     pub looping: Arc<AtomicBool>,
     pub millisecond_position: Arc<AtomicU64>,
-    pub progress: f32,
+    pub progress: Arc<AtomicU32>,
     pub(crate) sink: Sink,
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
@@ -69,15 +70,29 @@ impl Default for AudioPlayer {
             song_vec: Vec::new(),
             playing: Arc::new(AtomicBool::new(false)),
             song_loaded: false,
-            song_duration: 0.0,
+            song_duration: Arc::new(AtomicU32::new(0)),
             song_index: 0,
             looping: Arc::new(AtomicBool::new(false)),
             millisecond_position: Arc::new(AtomicU64::new(0)),
-            progress: 0.0,
+            progress: Arc::new(AtomicU32::new(0)),
             sink: Sink::try_new(&stream_handle).unwrap(),
             _stream,
             stream_handle,
         }
+    }
+}
+
+impl Deref for AudioPlayer {
+    type Target = ();
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+    }
+}
+
+impl DerefMut for AudioPlayer {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        todo!()
     }
 }
 
@@ -95,7 +110,7 @@ impl AudioPlayer {
     fn prepare_song(&mut self) {
         let song = self.get_current_song();
         self.sink.clear();
-        self.song_duration = song.duration;
+        set_atomic_float(&self.song_duration, song.duration);
         let file = File::open(song.path).unwrap();
         let source = Decoder::new(BufReader::new(file)).unwrap();
         self.sink.append(source);
@@ -177,55 +192,63 @@ impl AudioPlayer {
     }
 }
 
-pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>) {
+pub fn get_atomic_float(float: &Arc<AtomicU32>) -> f32 {
+    let value_as_u32 = float.load(Ordering::Relaxed);
+    value_as_u32 as f32 / 100.0
+}
+
+pub fn set_atomic_float(float: &Arc<AtomicU32>, value: f32) {
+    let value_as_u32 = (value * 100.0) as u32;
+    float.store(value_as_u32, Ordering::Relaxed);
+}
+
+pub fn start_worker_thread(audio_player: &Arc<AudioPlayer>, receiver: Receiver<AudioThreadActions>) {
     thread::spawn(move || {
         loop {
             // Check for messages
             if let Ok(action) = receiver.try_recv() {
-                let mut player_guard = audio_player.lock().unwrap();
                 match action {
                     AudioThreadActions::Play => {
-                        player_guard.play();
+                        audio_player.play();
                     }
                     AudioThreadActions::Pause => {
-                        player_guard.pause();
+                        audio_player.pause();
                     }
                     AudioThreadActions::KillThread => {
-                        // TODO
+                        break;
                     }
                     AudioThreadActions::Skip => {
-                        player_guard.next_song();
+                        audio_player.next_song();
                     }
                     AudioThreadActions::Loop => {
-                        player_guard.toggle_looping();
+                        audio_player.toggle_looping();
                     }
                     AudioThreadActions::Volume => {
                         // TODO
                     }
                     AudioThreadActions::Rewind => {
-                        player_guard.set_position(Duration::ZERO);
+                        audio_player.set_position(Duration::ZERO);
                     }
                     AudioThreadActions::Shuffle => {
-                        player_guard.shuffle();
+                        audio_player.shuffle();
                     }
                 }
             }
 
             // Update song position and progress if playing
             {
-                let mut player_guard = audio_player.lock().unwrap();
-                if player_guard.playing.load(Ordering::Relaxed) {
-                    let pos = player_guard.sink.get_pos().as_millis();
-                    player_guard.millisecond_position.store(pos as u64, Ordering::Relaxed);
+                if audio_player.playing.load(Ordering::Relaxed) {
+                    let pos = audio_player.sink.get_pos().as_millis();
+                    audio_player.millisecond_position.store(pos as u64, Ordering::Relaxed);
                     let seconds = pos / 1000;
-                    player_guard.progress = (seconds as f64 / player_guard.song_duration) as f32;
+                    set_atomic_float(&audio_player.progress, (seconds as f64 / get_atomic_float(&audio_player.song_duration) as f64) as f32);
 
                     // Check for song finished
-                    if player_guard.progress == 1.0 {
-                        if player_guard.looping.load(Ordering::Relaxed) {
-                            player_guard.prepare_song();
+                    if get_atomic_float(&audio_player.progress) == 1.0 {
+                        if audio_player.looping.load(Ordering::Relaxed) {
+                            audio_player.prepare_song();
                         } else {
-                            player_guard.next_song();
+                            audio_player.next_song();
                         }
                     }
                 }
@@ -277,7 +300,7 @@ pub fn gather_songs_from_path(path: &String) -> Vec<Song> {
         let song_file = file.unwrap();
         let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
         let data = gather_metadata(song_path);
-        let song = Song::new(song_path, data.1, data.0);
+        let song = Song::new(song_path, data.1, data.0 as f32);
         songs.push(song);
     }
     songs
