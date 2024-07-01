@@ -32,7 +32,7 @@ log = "0.4"
 # You only need serde if you want app persistence:
 serde = { version = "1", features = ["derive"] }
 
-rppal = "0.18.0"
+## rppal = "0.18.0"
 
 rodio = {git = "https://github.com/RustAudio/rodio.git"}
 lofty = "0.20.0"

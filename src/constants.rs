@@ -8,3 +8,14 @@ pub static PLAYLIST_DIRECTORY: Lazy<String> = Lazy::new(|| {
     path.push("open_lights/playlists/");
     path.to_str().expect("Failed to convert path to string").to_string()
 });
+
+pub enum AudioThreadActions {
+    KillThread,
+    Pause,
+    Play,
+    Loop,
+    Volume,
+    Skip,
+    Rewind,
+    Shuffle,
+}

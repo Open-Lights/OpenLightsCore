@@ -4,24 +4,24 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::thread;
 use std::time::Duration;
-use rppal::gpio::Gpio;
+//use rppal::gpio::Gpio;
 
 use serde::{Deserialize, Serialize};
 use crate::audio_player::Song;
 
 pub fn start_light_thread(current_song: Song) {
-    let light_data = gather_light_data(current_song.path.to_string_lossy().to_string());
+    let mut light_data = gather_light_data(current_song.path.to_string_lossy().to_string());
 
     if !light_data.is_empty() {
-        let gpio = Gpio::new()?;
+        //let gpio = Gpio::new()?;
         thread::spawn(move || {
             loop {
-                for mut channel_data in light_data {
+                for mut channel_data in &mut light_data {
                     let current_song_time = 10000; // TODO Actually acquire the current song time!
                     let target_time = channel_data.data.get(channel_data.index).unwrap();
                     if target_time.timestamp <= current_song_time {
-                        for channel in channel_data.channels {
-                            interface_gpio(channel, &gpio, &target_time.light_type);
+                        for channel in &channel_data.channels {
+                            //interface_gpio(channel, &gpio, &target_time.light_type);
                         }
                         channel_data.index += 1;
                     }
@@ -61,7 +61,7 @@ fn gather_light_data(song_path: String) -> Vec<ChannelData> {
         Err(_) => return Vec::new(),
     };
     let reader = BufReader::new(file);
-    let parsed_data: Data = serde_json::from_reader(reader)?;
+    let parsed_data: Data = serde_json::from_reader(reader).unwrap();
 
     let mut data_vec: Vec<ChannelData> = Vec::new();
 
@@ -89,6 +89,7 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
         .collect()
 }
 
+/*
 fn interface_gpio(channel: i8, gpio: &Gpio, light_type: &LightType) {
     let mut pin = gpio.get(channel as u8)?.into_output();
     match light_type {
@@ -100,3 +101,5 @@ fn interface_gpio(channel: i8, gpio: &Gpio, light_type: &LightType) {
         }
     }
 }
+
+ */

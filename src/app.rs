@@ -1,8 +1,9 @@
 use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
+use std::sync::mpsc;
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
@@ -10,7 +11,7 @@ use egui::scroll_area::ScrollBarVisibility;
 
 use crate::audio_player::{AudioPlayer, gather_songs_from_path, Song, start_worker_thread};
 use crate::constants;
-use crate::constants::PLAYLIST_DIRECTORY;
+use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
 
 #[derive(PartialEq, Default)]
 enum Screen {
@@ -24,24 +25,25 @@ pub struct OpenLightsCore {
     playlist: String,
     current_screen: Screen,
     file_explorer: FileExplorer,
-    pub audio_player: Arc<Mutex<AudioPlayer>>,
-    thread_alive: Arc<AtomicBool>,
+    pub audio_player: AudioPlayer,
+    messenger: Sender<AudioThreadActions>,
     volume: f32,
 }
 
 impl Default for OpenLightsCore {
     fn default() -> Self {
-        let audio_player = Arc::new(Mutex::new(AudioPlayer::new()));
-        let thread_alive = Arc::new(AtomicBool::new(true));
+        let audio_player = AudioPlayer::new();
+
+        let (tx, rx) = mpsc::channel();
         // TODO Actually make good threading improvements
-        //start_worker_thread(Arc::clone(&audio_player), Arc::clone(&thread_alive));
+        start_worker_thread(&audio_player, rx);
 
         Self {
             playlist: String::from(""),
             current_screen: Screen::default(),
             file_explorer: FileExplorer::new(),
             audio_player,
-            thread_alive,
+            messenger: tx,
             volume: 100.0,
         }
     }
@@ -91,9 +93,6 @@ impl OpenLightsCore {
             let _ = &self.top_menu(ui);
         });
 
-        let binding = &self.audio_player;
-        let player_guard = binding.lock().unwrap();
-
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 ui.add(
@@ -111,7 +110,7 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for option in &player_guard.playlist_vec {
+                        for option in &self.audio_player.playlist_vec {
                             if ui.add(egui::SelectableLabel::new(
                                 &self.playlist == option,
                                 option,
@@ -124,6 +123,7 @@ impl OpenLightsCore {
 
                 ui.add_space(30.);
                 if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != *"" {
+                    self.audio_player.load_songs_from_playlist(&self.playlist);
                     self.current_screen = Screen::Jukebox;
                 };
             });
@@ -160,14 +160,10 @@ impl OpenLightsCore {
             self.top_menu(ui);
         });
 
-        let current_song;
-        let song_vec;
-        {
-            let binding = &self.audio_player;
-            let mut player_guard = binding.lock().unwrap();
-            current_song = player_guard.get_current_song();
-            song_vec = player_guard.song_vec.clone();
-        }
+        // TODO Determine if this is safe (it should be)
+        let current_song = self.audio_player.get_current_song();
+        let song_vec = self.audio_player.song_vec.clone();
+
         // Center
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
@@ -184,9 +180,8 @@ impl OpenLightsCore {
                                 &current_song == song,
                                 format!("{} by {}", song.name, song.artist),
                             )).clicked() {
-                                let binding = &self.audio_player;
-                                let mut player_guard = binding.lock().unwrap();
-                                player_guard.song_override(song);
+                                // TODO Determine if this is safe (it should be)
+                                self.audio_player.song_override(song);
                             };
                             ui.add_space(10.);
                         }
@@ -200,32 +195,19 @@ impl OpenLightsCore {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 ui.separator();
 
-                let volume = self.volume;
-
-                let binding = &self.audio_player;
-                let mut player_guard = binding.lock().unwrap();
-
-                // Extract necessary data from player_guard
-                let song = player_guard.get_current_song();
-                let progress = player_guard.progress;
-                let millisecond_position = player_guard.millisecond_position;
-                let song_duration = player_guard.get_current_song().duration as i32;
-                let playing = player_guard.playing;
-                let looping = player_guard.looping;
-
-                //drop(player_guard);
+                let song = self.audio_player.get_current_song();
 
                 // Song Title
                 ui.label(format!("{} by {}", song.name, song.artist));
 
                 // Loading Bar
-                Self::centered_song_progress_display(ui, progress, millisecond_position, song_duration);
+                Self::centered_song_progress_display(self, ui);
 
                 // Buttons
-                Self::centered_buttons(ui, playing, looping, &mut player_guard);
+                Self::centered_buttons(self, ui);
 
                 // Slider
-                Self::centered_volume_slider(volume, ui, &mut player_guard);
+                Self::centered_volume_slider(self, ui);
 
             });
         });
@@ -240,11 +222,11 @@ impl OpenLightsCore {
         });
     }
 
-    fn centered_song_progress_display(ui: &mut Ui, progress: f32, millisecond_position: u128, song_duration: i32) {
-        let bar = ProgressBar::new(progress).animate(false);
+    fn centered_song_progress_display(&mut self, ui: &mut Ui) {
+        let bar = ProgressBar::new(self.audio_player.progress).animate(false);
 
         // Get the width of the text to center it
-        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(millisecond_position)), Self::format_time(song_duration));
+        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(self.audio_player.millisecond_position.load(Ordering::Relaxed))), Self::format_time(self.audio_player.get_current_song().duration as i32));
 
         // Layout the progress bar
         ui.vertical_centered(|ui| {
@@ -274,11 +256,11 @@ impl OpenLightsCore {
         let remaining_seconds = seconds % 60;
         format!("{:02}:{:02}", minutes, remaining_seconds)
     }
-    fn milliseconds_to_seconds(ms: u128) -> i32 {
+    fn milliseconds_to_seconds(ms: u64) -> i32 {
         (ms / 1000) as i32
     }
 
-    fn centered_buttons(ui: &mut Ui, playing: bool, looping: bool, player_guard: &mut MutexGuard<'_, AudioPlayer>) {
+    fn centered_buttons(&mut self, ui: &mut Ui) {
         let button_count = 5;
         let button_size = Vec2::new(40.0, 40.0); // Width and height of each button
         let button_spacing = ui.spacing().item_spacing.x;
@@ -292,37 +274,37 @@ impl OpenLightsCore {
             ui.add_space(left_padding);
 
             if ui.add_sized(button_size, egui::Button::new("⏭")).clicked() {
-                player_guard.next_song();
+                self.messenger.send(AudioThreadActions::Skip).unwrap();
             }
 
             if ui.add_sized(button_size, egui::Button::new("⏪")).clicked() {
-                player_guard.set_position(Duration::from_secs(0));
+                self.messenger.send(AudioThreadActions::Rewind).unwrap();
             }
 
 
-            if ui.add_sized(button_size, egui::Button::new(if playing { "⏸" } else { "▶" })).clicked() {
-                if playing  {
-                    player_guard.pause();
+            if ui.add_sized(button_size, egui::Button::new(if self.audio_player.playing.load(Ordering::Relaxed) { "⏸" } else { "▶" })).clicked() {
+                if self.audio_player.playing.load(Ordering::Relaxed)  {
+                    self.messenger.send(AudioThreadActions::Pause).unwrap();
                 } else {
-                    player_guard.play();
+                    self.messenger.send(AudioThreadActions::Play).unwrap();
                 }
             }
 
             if ui.add_sized(button_size, egui::Button::new("🔀")).clicked() {
-                player_guard.shuffle();
+                self.messenger.send(AudioThreadActions::Shuffle).unwrap();
             }
 
-            if ui.add_sized(button_size, egui::SelectableLabel::new(looping, "🔁")).clicked() {
-                player_guard.toggle_looping();
+            if ui.add_sized(button_size, egui::SelectableLabel::new(self.audio_player.looping.load(Ordering::Relaxed), "🔁")).clicked() {
+                self.messenger.send(AudioThreadActions::Loop).unwrap();
             }
         });
     }
 
-    fn centered_volume_slider(mut volume: f32, ui: &mut Ui, player_guard: &mut MutexGuard<'_, AudioPlayer>) {
+    fn centered_volume_slider(&mut self, ui: &mut Ui) {
         let slider_width = Vec2::new(200., 50.);
 
-        if ui.add_sized(slider_width, egui::Slider::new(&mut volume, 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
-            player_guard.set_volume((volume) / 100.0);
+        if ui.add_sized(slider_width, egui::Slider::new(&mut self.volume, 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
+            self.audio_player.set_volume((self.volume) / 100.0);
         }
     }
 }

@@ -4,7 +4,8 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::Receiver;
 use std::time::Duration;
 
 use lofty::file::TaggedFileExt;
@@ -17,7 +18,7 @@ use shuffle::irs::Irs;
 use shuffle::shuffler::Shuffler;
 use walkdir::WalkDir;
 
-use crate::constants::PLAYLIST_DIRECTORY;
+use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
 
 #[derive(Clone, Default)]
 pub struct Song {
@@ -45,18 +46,16 @@ impl Song {
 pub struct AudioPlayer {
     pub playlist_vec: Vec<String>,
     pub song_vec: Vec<Song>,
-    pub playing: bool,
+    pub playing: Arc<AtomicBool>,
     song_loaded: bool,
     song_duration: f64,
     song_index: usize,
-    pub looping: bool,
-    pub millisecond_position: u128,
+    pub looping: Arc<AtomicBool>,
+    pub millisecond_position: Arc<AtomicU64>,
     pub progress: f32,
-    volume: f32,
     pub(crate) sink: Sink,
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
-    thread_alive: bool,
 }
 
 unsafe impl Sync for AudioPlayer {}
@@ -68,18 +67,16 @@ impl Default for AudioPlayer {
         Self {
             playlist_vec: locate_playlists(&**PLAYLIST_DIRECTORY),
             song_vec: Vec::new(),
-            playing: false,
+            playing: Arc::new(AtomicBool::new(false)),
             song_loaded: false,
             song_duration: 0.0,
             song_index: 0,
-            looping: false,
-            millisecond_position: 0,
+            looping: Arc::new(AtomicBool::new(false)),
+            millisecond_position: Arc::new(AtomicU64::new(0)),
             progress: 0.0,
-            volume: 100.,
             sink: Sink::try_new(&stream_handle).unwrap(),
             _stream,
             stream_handle,
-            thread_alive: true,
         }
     }
 }
@@ -108,7 +105,7 @@ impl AudioPlayer {
     pub fn play(&mut self) {
         if self.song_loaded {
             self.sink.play();
-            self.playing = true;
+            self.playing.store(true, Ordering::Relaxed);
         } else {
             self.prepare_song();
             self.play();
@@ -117,7 +114,7 @@ impl AudioPlayer {
 
     pub fn pause(&mut self) {
         self.sink.pause();
-        self.playing = false;
+        self.playing.store(false, Ordering::Relaxed);
     }
 
     pub fn get_song_index(&mut self, song: &Song) -> usize {
@@ -134,12 +131,7 @@ impl AudioPlayer {
     }
 
     pub fn set_volume(&mut self, new_volume: f32) {
-        self.volume = new_volume;
-        self.sink.set_volume(self.volume);
-    }
-
-    pub fn get_volume(&mut self) -> f32 {
-        self.volume
+        self.sink.set_volume(new_volume);
     }
 
     pub fn get_current_song(&mut self) -> Song {
@@ -175,7 +167,7 @@ impl AudioPlayer {
     }
 
     pub fn toggle_looping(&mut self) {
-        self.looping = !self.looping;
+        self.looping.store(!self.looping.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
     pub fn load_songs_from_playlist(&mut self, playlist: &String) {
@@ -185,28 +177,60 @@ impl AudioPlayer {
     }
 }
 
-pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, thread_alive: Arc<AtomicBool>) {
+pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>) {
     thread::spawn(move || {
-        while thread_alive.load(Ordering::SeqCst) {
-            let mut player_guard = audio_player.lock().unwrap();
-            if player_guard.playing {
-                // Update song pos
-                let pos = player_guard.sink.get_pos().as_millis();
-                player_guard.millisecond_position = pos;
-                // Set progress
-                let seconds= pos / 1000;
-                player_guard.progress = (seconds as f64 / player_guard.song_duration) as f32;
-                // Check for song finished
-                if player_guard.progress == 1.0 {
-                    if player_guard.looping {
-                        // TODO run prepare_song()
-                        player_guard.prepare_song();
-                    } else {
-                        // TODO run next_song()
+        loop {
+            // Check for messages
+            if let Ok(action) = receiver.try_recv() {
+                let mut player_guard = audio_player.lock().unwrap();
+                match action {
+                    AudioThreadActions::Play => {
+                        player_guard.play();
+                    }
+                    AudioThreadActions::Pause => {
+                        player_guard.pause();
+                    }
+                    AudioThreadActions::KillThread => {
+                        // TODO
+                    }
+                    AudioThreadActions::Skip => {
                         player_guard.next_song();
+                    }
+                    AudioThreadActions::Loop => {
+                        player_guard.toggle_looping();
+                    }
+                    AudioThreadActions::Volume => {
+                        // TODO
+                    }
+                    AudioThreadActions::Rewind => {
+                        player_guard.set_position(Duration::ZERO);
+                    }
+                    AudioThreadActions::Shuffle => {
+                        player_guard.shuffle();
                     }
                 }
             }
+
+            // Update song position and progress if playing
+            {
+                let mut player_guard = audio_player.lock().unwrap();
+                if player_guard.playing.load(Ordering::Relaxed) {
+                    let pos = player_guard.sink.get_pos().as_millis();
+                    player_guard.millisecond_position.store(pos as u64, Ordering::Relaxed);
+                    let seconds = pos / 1000;
+                    player_guard.progress = (seconds as f64 / player_guard.song_duration) as f32;
+
+                    // Check for song finished
+                    if player_guard.progress == 1.0 {
+                        if player_guard.looping.load(Ordering::Relaxed) {
+                            player_guard.prepare_song();
+                        } else {
+                            player_guard.next_song();
+                        }
+                    }
+                }
+            }
+
             thread::sleep(Duration::from_millis(10));
         }
     });
