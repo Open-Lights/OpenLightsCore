@@ -33,7 +33,8 @@ impl Default for OpenLightsCore {
     fn default() -> Self {
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new()));
         let thread_alive = Arc::new(AtomicBool::new(true));
-        start_worker_thread(Arc::clone(&audio_player), Arc::clone(&thread_alive));
+        // TODO Actually make good threading improvements
+        //start_worker_thread(Arc::clone(&audio_player), Arc::clone(&thread_alive));
 
         Self {
             playlist: String::from(""),
