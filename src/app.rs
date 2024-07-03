@@ -1,8 +1,8 @@
 use std::cmp::PartialEq;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc, Mutex, RwLock};
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc, Mutex};
+use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
@@ -23,31 +23,32 @@ enum Screen {
 
 pub struct OpenLightsCore {
     playlist_vec: Vec<String>,
-    playlist: Arc<RwLock<String>>,
+    song_vec_cache: Option<Vec<Song>>,
+    playlist: String,
     current_screen: Screen,
     file_explorer: FileExplorer,
     pub audio_player: Arc<Mutex<AudioPlayer>>,
     messenger: Sender<AudioThreadActions>,
     song_vec_receiver: Receiver<Vec<Song>>,
-    volume: Arc<AtomicU32>,
+    volume: Arc<AtomicI8>,
     clicked_index: Arc<AtomicUsize>,
 }
 
 impl Default for OpenLightsCore {
     fn default() -> Self {
-        let volume = Arc::new(AtomicU32::new(100));
+        let volume = Arc::new(AtomicI8::new(100));
         let clicked_index = Arc::new(AtomicUsize::new(0));
-        let playlist = Arc::new(RwLock::new(String::from("")));
+        let(tx_song_vec, rx_song_vec) = mpsc::channel();
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new(Arc::clone(&volume), Arc::clone(&clicked_index))));
 
 
         let (tx, rx) = mpsc::channel();
-        let(tx_song_vec, rx_song_vec) = mpsc::channel();
-        start_worker_thread(Arc::clone(&audio_player), rx, tx_song_vec, Arc::clone(&playlist));
+        start_worker_thread(Arc::clone(&audio_player), rx, tx_song_vec);
 
         Self {
-            playlist_vec: locate_playlists(&**PLAYLIST_DIRECTORY),
-            playlist,
+            playlist_vec: locate_playlists(),
+            song_vec_cache: None,
+            playlist: String::from(""),
             current_screen: Screen::default(),
             file_explorer: FileExplorer::new(),
             audio_player,
@@ -120,22 +121,21 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for option in &self.playlist_vec {
-                            let s = self.playlist.read().unwrap();
+                        for (index, option) in self.playlist_vec.iter().enumerate() {
                             if ui.add(egui::SelectableLabel::new(
-                                &*s == option,
+                                &self.playlist == option,
                                 option,
                             )).clicked() {
-                                let mut string= self.playlist.write().unwrap();
-                                string.push_str(option);
+                                self.playlist = option.clone();
+                                self.clicked_index.store(index, Ordering::Relaxed);
                             };
                             ui.add_space(10.);
                         }
                     });
 
                 ui.add_space(30.);
-                let s = self.playlist.read().unwrap();
-                if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && *s != *"" {
+                if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != "" {
+                    self.song_vec_cache = None;
                     self.messenger.send(AudioThreadActions::LoadFromPlaylist).unwrap();
                     self.current_screen = Screen::Jukebox;
                 };
@@ -173,11 +173,19 @@ impl OpenLightsCore {
             self.top_menu(ui);
         });
 
-        let song_vec = self.song_vec_receiver.try_recv().unwrap_or_else(|_| Vec::new());
+        if self.song_vec_cache.is_none() {
+            self.messenger.send(AudioThreadActions::RequestSongVec).unwrap();
+            self.song_vec_cache = Some(self.song_vec_receiver.recv().unwrap_or_else(|_| Vec::new()));
+        }
+
         let current_song = {
             let song_index = self.audio_player.lock().unwrap().song_index.clone();
             let song_index_value = song_index.load(Ordering::Relaxed);
-            song_vec.get(song_index_value).unwrap().clone()
+            if let Some(ref song_vec) = self.song_vec_cache {
+                song_vec.get(song_index_value).unwrap().clone()
+            } else {
+                return;
+            }
         };
 
 
@@ -192,15 +200,17 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for (index, song) in song_vec.iter().enumerate() {
-                            if ui.add(egui::SelectableLabel::new(
-                                &current_song == song,
-                                format!("{} by {}", song.name, song.artist),
-                            )).clicked() {
-                                self.clicked_index.store(index, Ordering::Relaxed);
-                                self.messenger.send(AudioThreadActions::SongOverride).unwrap();
-                            };
-                            ui.add_space(10.);
+                        if let Some(ref song_vec) = self.song_vec_cache {
+                            for (index, song) in song_vec.iter().enumerate() {
+                                if ui.add(egui::SelectableLabel::new(
+                                    &current_song == song,
+                                    format!("{} by {}", song.name, song.artist),
+                                )).clicked() {
+                                    self.clicked_index.store(index, Ordering::Relaxed);
+                                    self.messenger.send(AudioThreadActions::SongOverride).unwrap();
+                                };
+                                ui.add_space(10.);
+                            }
                         }
                     });
             });
@@ -317,6 +327,7 @@ impl OpenLightsCore {
             }
 
             if ui.add_sized(button_size, egui::Button::new("🔀")).clicked() {
+                self.song_vec_cache = None;
                 self.messenger.send(AudioThreadActions::Shuffle).unwrap();
             }
 
@@ -328,8 +339,10 @@ impl OpenLightsCore {
 
     fn centered_volume_slider(&mut self, ui: &mut Ui) {
         let slider_width = Vec2::new(200., 50.);
+        let mut slider_percent = self.volume.load(Ordering::Relaxed);
 
-        if ui.add_sized(slider_width, egui::Slider::new(&mut get_atomic_float(&self.volume), 0.0..=100.).text("Volume").suffix("%")).drag_stopped {
+        if ui.add_sized(slider_width, egui::Slider::new(&mut slider_percent, 0..=100).text("Volume").suffix("%")).drag_stopped {
+            self.volume.store(slider_percent, Ordering::Relaxed);
             self.messenger.send(AudioThreadActions::Volume).unwrap();
         }
     }

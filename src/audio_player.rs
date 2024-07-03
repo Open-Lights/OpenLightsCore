@@ -3,19 +3,15 @@ use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use lofty::file::TaggedFileExt;
 use lofty::prelude::*;
 use lofty::probe::Probe;
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
-use shuffle::irs::Irs;
-use shuffle::shuffler::Shuffler;
 use walkdir::WalkDir;
 
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
@@ -52,7 +48,7 @@ pub struct AudioPlayer {
     pub looping: Arc<AtomicBool>,
     pub millisecond_position: Arc<AtomicU64>,
     pub progress: Arc<AtomicU32>,
-    volume: Arc<AtomicU32>,
+    volume: Arc<AtomicI8>,
     clicked_index: Arc<AtomicUsize>,
     pub(crate) sink: Sink,
     _stream: OutputStream,
@@ -69,7 +65,7 @@ impl PartialEq for Song {
 }
 
 impl AudioPlayer {
-    pub fn new(volume: Arc<AtomicU32>, clicked_index: Arc<AtomicUsize>) -> Self {
+    pub fn new(volume: Arc<AtomicI8>, clicked_index: Arc<AtomicUsize>) -> Self {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         Self {
             song_vec: Vec::new(),
@@ -118,9 +114,7 @@ impl AudioPlayer {
     }
 
     pub fn shuffle(&mut self) {
-        let mut rng = StdRng::from_entropy();
-        let mut irs = Irs::default();
-        irs.shuffle(&mut self.song_vec, &mut rng).expect("Failed to Shuffle");
+        fastrand::shuffle(&mut self.song_vec);
         self.song_index.store(0, Ordering::Relaxed);
         self.song_loaded = false;
         self.play();
@@ -185,7 +179,7 @@ pub fn set_atomic_float(float: &Arc<AtomicU32>, value: f32) {
     float.store(value_as_u32, Ordering::Relaxed);
 }
 
-pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>, song_vec_sender: Sender<Vec<Song>>, playlist: Arc<RwLock<String>>) {
+pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>, song_vec_sender: Sender<Vec<Song>>) {
     thread::spawn(move || {
         loop {
             // Check for messages
@@ -208,7 +202,7 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         audio_player_safe.toggle_looping();
                     }
                     AudioThreadActions::Volume => {
-                        let volume = get_atomic_float(&audio_player_safe.volume) / 100.0;
+                        let volume = audio_player_safe.volume.load(Ordering::Relaxed) as f32 / 100.0;
                         audio_player_safe.set_volume(volume);
                     }
                     AudioThreadActions::Rewind => {
@@ -225,8 +219,9 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         song_vec_sender.send(audio_player_safe.song_vec.clone()).unwrap();
                     }
                     AudioThreadActions::LoadFromPlaylist => {
-                        let string = playlist.read().unwrap();
-                        audio_player_safe.load_songs_from_playlist(&*string);
+                        let playlist = playlist_from_index(&audio_player_safe.clicked_index);
+                        audio_player_safe.load_songs_from_playlist(&playlist);
+                        audio_player_safe.clicked_index.store(0, Ordering::Relaxed);
                     }
                 }
             }
@@ -241,9 +236,10 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                     set_atomic_float(&audio_player_safe.progress, (seconds as f64 / get_atomic_float(&audio_player_safe.song_duration) as f64) as f32);
 
                     // Check for song finished
-                    if get_atomic_float(&audio_player_safe.progress) == 1.0 {
+                    if get_atomic_float(&audio_player_safe.progress) >= 0.99 && audio_player_safe.sink.empty() {
                         if audio_player_safe.looping.load(Ordering::Relaxed) {
                             audio_player_safe.prepare_song();
+                            audio_player_safe.play();
                         } else {
                             audio_player_safe.next_song();
                         }
@@ -274,10 +270,16 @@ fn gather_metadata(path: &str) -> (f64, String) {
     }
 }
 
-pub fn locate_playlists(path: &str) -> Vec<String> {
+fn playlist_from_index(index: &Arc<AtomicUsize>) -> String {
+    let playlists = locate_playlists();
+    let playlist: Option<String> = playlists.get(index.load(Ordering::Relaxed)).cloned();
+    playlist.unwrap()
+}
+
+pub fn locate_playlists() -> Vec<String> {
     let mut folder_names = Vec::new();
 
-    for entry in fs::read_dir(path).unwrap() {
+    for entry in fs::read_dir(&**PLAYLIST_DIRECTORY).unwrap() {
         let directory = entry.unwrap();
         let path = directory.path();
 
