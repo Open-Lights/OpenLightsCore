@@ -18,4 +18,7 @@ pub enum AudioThreadActions {
     Skip,
     Rewind,
     Shuffle,
+    SongOverride,
+    RequestSongVec,
+    LoadFromPlaylist,
 }

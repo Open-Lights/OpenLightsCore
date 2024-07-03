@@ -9,14 +9,14 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use crate::audio_player::Song;
 
-pub fn start_light_thread(current_song: Song) {
+pub fn start_light_thread(current_song: Song, ) {
     let mut light_data = gather_light_data(current_song.path.to_string_lossy().to_string());
 
     if !light_data.is_empty() {
         //let gpio = Gpio::new()?;
         thread::spawn(move || {
             loop {
-                for mut channel_data in &mut light_data {
+                for channel_data in &mut light_data {
                     let current_song_time = 10000; // TODO Actually acquire the current song time!
                     let target_time = channel_data.data.get(channel_data.index).unwrap();
                     if target_time.timestamp <= current_song_time {

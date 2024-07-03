@@ -2,11 +2,10 @@ use std::{fs, thread};
 use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::BufReader;
-use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::mpsc::Receiver;
+use std::sync::{Arc, Mutex, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use lofty::file::TaggedFileExt;
@@ -45,15 +44,16 @@ impl Song {
 }
 
 pub struct AudioPlayer {
-    pub playlist_vec: Vec<String>,
     pub song_vec: Vec<Song>,
     pub playing: Arc<AtomicBool>,
     song_loaded: bool,
     pub song_duration: Arc<AtomicU32>,
-    song_index: usize,
+    pub song_index: Arc<AtomicUsize>,
     pub looping: Arc<AtomicBool>,
     pub millisecond_position: Arc<AtomicU64>,
     pub progress: Arc<AtomicU32>,
+    volume: Arc<AtomicU32>,
+    clicked_index: Arc<AtomicUsize>,
     pub(crate) sink: Sink,
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
@@ -62,40 +62,6 @@ pub struct AudioPlayer {
 unsafe impl Sync for AudioPlayer {}
 unsafe impl Send for AudioPlayer {}
 
-impl Default for AudioPlayer {
-    fn default() -> Self {
-        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-        Self {
-            playlist_vec: locate_playlists(&**PLAYLIST_DIRECTORY),
-            song_vec: Vec::new(),
-            playing: Arc::new(AtomicBool::new(false)),
-            song_loaded: false,
-            song_duration: Arc::new(AtomicU32::new(0)),
-            song_index: 0,
-            looping: Arc::new(AtomicBool::new(false)),
-            millisecond_position: Arc::new(AtomicU64::new(0)),
-            progress: Arc::new(AtomicU32::new(0)),
-            sink: Sink::try_new(&stream_handle).unwrap(),
-            _stream,
-            stream_handle,
-        }
-    }
-}
-
-impl Deref for AudioPlayer {
-    type Target = ();
-
-    fn deref(&self) -> &Self::Target {
-        todo!()
-    }
-}
-
-impl DerefMut for AudioPlayer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        todo!()
-    }
-}
-
 impl PartialEq for Song {
     fn eq(&self, other: &Self) -> bool {
         self.path == other.path
@@ -103,8 +69,23 @@ impl PartialEq for Song {
 }
 
 impl AudioPlayer {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(volume: Arc<AtomicU32>, clicked_index: Arc<AtomicUsize>) -> Self {
+        let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+        Self {
+            song_vec: Vec::new(),
+            playing: Arc::new(AtomicBool::new(false)),
+            song_loaded: false,
+            song_duration: Arc::new(AtomicU32::new(0)),
+            song_index: Arc::new(AtomicUsize::new(0)),
+            looping: Arc::new(AtomicBool::new(false)),
+            millisecond_position: Arc::new(AtomicU64::new(0)),
+            progress: Arc::new(AtomicU32::new(0)),
+            volume,
+            clicked_index,
+            sink: Sink::try_new(&stream_handle).unwrap(),
+            _stream,
+            stream_handle,
+        }
     }
 
     fn prepare_song(&mut self) {
@@ -140,7 +121,7 @@ impl AudioPlayer {
         let mut rng = StdRng::from_entropy();
         let mut irs = Irs::default();
         irs.shuffle(&mut self.song_vec, &mut rng).expect("Failed to Shuffle");
-        self.song_index = 0;
+        self.song_index.store(0, Ordering::Relaxed);
         self.song_loaded = false;
         self.play();
     }
@@ -151,23 +132,24 @@ impl AudioPlayer {
 
     pub fn get_current_song(&mut self) -> Song {
         // TODO Maybe remove Clone here?
-        self.song_vec.get(self.song_index).unwrap().clone()
+        self.song_vec.get(self.song_index.load(Ordering::Relaxed)).unwrap().clone()
     }
 
     pub fn song_override(&mut self, song: &Song) {
         self.pause();
         let index = self.get_song_index(song);
-        self.song_index = index;
+        self.song_index.store(index, Ordering::Relaxed);
         self.song_loaded = false;
         self.play();
     }
 
     pub fn next_song(&mut self) {
         self.pause();
-        self.song_index += 1;
+        let new_index = self.song_index.load(Ordering::Relaxed) + 1;
+        self.song_index.store(new_index, Ordering::Relaxed);
 
-        if self.song_index >= self.song_vec.len() {
-            self.song_index = 0;
+        if new_index >= self.song_vec.len() {
+            self.song_index.store(0, Ordering::Relaxed);
         }
 
         self.song_loaded = false;
@@ -178,7 +160,8 @@ impl AudioPlayer {
         self.pause();
         self.sink.try_seek(time).unwrap();
         self.play();
-        // TODO Set ms time
+        self.millisecond_position.store(time.as_millis() as u64, Ordering::Relaxed);
+        // TODO Add code for lights to find closest point to the time (add quick path for time = 0)
     }
 
     pub fn toggle_looping(&mut self) {
@@ -202,53 +185,67 @@ pub fn set_atomic_float(float: &Arc<AtomicU32>, value: f32) {
     float.store(value_as_u32, Ordering::Relaxed);
 }
 
-pub fn start_worker_thread(audio_player: &Arc<AudioPlayer>, receiver: Receiver<AudioThreadActions>) {
+pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>, song_vec_sender: Sender<Vec<Song>>, playlist: Arc<RwLock<String>>) {
     thread::spawn(move || {
         loop {
             // Check for messages
             if let Ok(action) = receiver.try_recv() {
+                let mut audio_player_safe = audio_player.lock().unwrap();
                 match action {
                     AudioThreadActions::Play => {
-                        audio_player.play();
+                        audio_player_safe.play();
                     }
                     AudioThreadActions::Pause => {
-                        audio_player.pause();
+                        audio_player_safe.pause();
                     }
                     AudioThreadActions::KillThread => {
                         break;
                     }
                     AudioThreadActions::Skip => {
-                        audio_player.next_song();
+                        audio_player_safe.next_song();
                     }
                     AudioThreadActions::Loop => {
-                        audio_player.toggle_looping();
+                        audio_player_safe.toggle_looping();
                     }
                     AudioThreadActions::Volume => {
-                        // TODO
+                        let volume = get_atomic_float(&audio_player_safe.volume) / 100.0;
+                        audio_player_safe.set_volume(volume);
                     }
                     AudioThreadActions::Rewind => {
-                        audio_player.set_position(Duration::ZERO);
+                        audio_player_safe.set_position(Duration::ZERO);
                     }
                     AudioThreadActions::Shuffle => {
-                        audio_player.shuffle();
+                        audio_player_safe.shuffle();
+                    }
+                    AudioThreadActions::SongOverride => {
+                        let song = audio_player_safe.song_vec.get(audio_player_safe.clicked_index.load(Ordering::Relaxed)).unwrap().clone();
+                        audio_player_safe.song_override(&song);
+                    }
+                    AudioThreadActions::RequestSongVec => {
+                        song_vec_sender.send(audio_player_safe.song_vec.clone()).unwrap();
+                    }
+                    AudioThreadActions::LoadFromPlaylist => {
+                        let string = playlist.read().unwrap();
+                        audio_player_safe.load_songs_from_playlist(&*string);
                     }
                 }
             }
 
             // Update song position and progress if playing
             {
-                if audio_player.playing.load(Ordering::Relaxed) {
-                    let pos = audio_player.sink.get_pos().as_millis();
-                    audio_player.millisecond_position.store(pos as u64, Ordering::Relaxed);
+                let mut audio_player_safe = audio_player.lock().unwrap();
+                if audio_player_safe.playing.load(Ordering::Relaxed) {
+                    let pos = audio_player_safe.sink.get_pos().as_millis();
+                    audio_player_safe.millisecond_position.store(pos as u64, Ordering::Relaxed);
                     let seconds = pos / 1000;
-                    set_atomic_float(&audio_player.progress, (seconds as f64 / get_atomic_float(&audio_player.song_duration) as f64) as f32);
+                    set_atomic_float(&audio_player_safe.progress, (seconds as f64 / get_atomic_float(&audio_player_safe.song_duration) as f64) as f32);
 
                     // Check for song finished
-                    if get_atomic_float(&audio_player.progress) == 1.0 {
-                        if audio_player.looping.load(Ordering::Relaxed) {
-                            audio_player.prepare_song();
+                    if get_atomic_float(&audio_player_safe.progress) == 1.0 {
+                        if audio_player_safe.looping.load(Ordering::Relaxed) {
+                            audio_player_safe.prepare_song();
                         } else {
-                            audio_player.next_song();
+                            audio_player_safe.next_song();
                         }
                     }
                 }
