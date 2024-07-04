@@ -41,6 +41,7 @@ rodio = {git = "https://github.com/RustAudio/rodio.git"}
 lofty = "0.20.1"
 hound = "3.5.1"
 once_cell = "1.19.0"
+cpal = "0.15.3"
 
 # Random Dependencies
 fastrand = "2.1.0"
@@ -48,6 +49,7 @@ fastrand = "2.1.0"
 # File Utility Dependencies
 walkdir = "2.5.0"
 
+# Bluetooth
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]

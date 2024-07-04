@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
+use cpal::traits::{DeviceTrait, HostTrait};
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 
@@ -19,6 +20,7 @@ enum Screen {
     Playlist,
     Jukebox,
     FileManager,
+    Audio,
 }
 
 pub struct OpenLightsCore {
@@ -32,6 +34,8 @@ pub struct OpenLightsCore {
     song_vec_receiver: Receiver<Vec<Song>>,
     volume: Arc<AtomicI8>,
     clicked_index: Arc<AtomicUsize>,
+    selected_audio_device: i8,
+    audio_devices_cache: Option<Vec<String>>,
 }
 
 impl Default for OpenLightsCore {
@@ -56,6 +60,8 @@ impl Default for OpenLightsCore {
             song_vec_receiver: rx_song_vec,
             volume,
             clicked_index,
+            selected_audio_device: -1,
+            audio_devices_cache: None,
         }
     }
 }
@@ -156,11 +162,15 @@ impl OpenLightsCore {
             egui::widgets::global_dark_light_mode_buttons(ui);
 
             if ui.button("Playlists").clicked() {
-                self.current_screen = Screen::Playlist
+                self.current_screen = Screen::Playlist;
             }
 
             if ui.button("Song Manager").clicked() {
-                self.current_screen = Screen::FileManager
+                self.current_screen = Screen::FileManager;
+            }
+
+            if ui.button("Audio Manager").clicked() {
+                self.current_screen = Screen::Audio;
             }
         });
     }
@@ -346,6 +356,54 @@ impl OpenLightsCore {
             self.messenger.send(AudioThreadActions::Volume).unwrap();
         }
     }
+
+    fn show_audio_settings_screen(&mut self, ctx: &Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            self.top_menu(ui);
+        });
+        CentralPanel::default().show(ctx, |ui| {
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                ui.label(RichText::new("  Select Audio Device  ").text_style(heading2()).strong().underline());
+                ui.separator();
+
+                if self.audio_devices_cache.is_none() {
+                    let available_hosts = cpal::available_hosts();
+                    for id in available_hosts {
+                        let host = cpal::host_from_id(id).unwrap();
+                        let devices = host.devices().unwrap();
+                        let mut vec = Vec::new();
+                        for device in devices {
+                            let name = device.name().unwrap();
+                            if !name.contains("Microphone") {
+                                vec.push(device.name().unwrap());
+                            }
+                        }
+                        // TODO Add bluetooth devices
+                        self.audio_devices_cache = Some(vec);
+                    }
+                }
+
+                ScrollArea::vertical()
+                    .auto_shrink([true, true])
+                    .max_height(200.)
+                    .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
+                    .show(ui, |ui| {
+                        if let Some(ref audio_devices_cache) = self.audio_devices_cache {
+                            for (index, device) in audio_devices_cache.iter().enumerate() {
+                                if ui.add(egui::SelectableLabel::new(
+                                    self.selected_audio_device == index as i8,
+                                    device,
+                                )).clicked() {
+                                    self.selected_audio_device = index as i8;
+                                    //TODO Display more info on the side
+                                };
+                                ui.add_space(10.);
+                            }
+                        }
+                    });
+            });
+        });
+    }
 }
 
 impl eframe::App for OpenLightsCore {
@@ -355,6 +413,7 @@ impl eframe::App for OpenLightsCore {
             Screen::Playlist => self.show_playlist_screen(ctx),
             Screen::Jukebox => self.show_jukebox_screen(ctx),
             Screen::FileManager => self.show_file_manager_screen(ctx),
+            Screen::Audio => self.show_audio_settings_screen(ctx),
         }
     }
 }
