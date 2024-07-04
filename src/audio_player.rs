@@ -15,6 +15,7 @@ use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
 use walkdir::WalkDir;
 
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
+use crate::lights::start_light_thread;
 
 #[derive(Clone, Default)]
 pub struct Song {
@@ -53,6 +54,9 @@ pub struct AudioPlayer {
     pub(crate) sink: Sink,
     _stream: OutputStream,
     stream_handle: OutputStreamHandle,
+    light_thread_active: Arc<AtomicBool>,
+    light_thread_toggle: Arc<AtomicBool>,
+    light_thread_reset: Arc<AtomicBool>,
 }
 
 unsafe impl Sync for AudioPlayer {}
@@ -81,17 +85,29 @@ impl AudioPlayer {
             sink: Sink::try_new(&stream_handle).unwrap(),
             _stream,
             stream_handle,
+            light_thread_active: Arc::new(AtomicBool::new(false)),
+            light_thread_toggle: Arc::new(AtomicBool::new(false)),
+            light_thread_reset: Arc::new(AtomicBool::new(false)),
         }
     }
 
     fn prepare_song(&mut self) {
         let song = self.get_current_song();
         self.sink.clear();
+        self.millisecond_position.store(0, Ordering::Relaxed);
         set_atomic_float(&self.song_duration, song.duration);
-        let file = File::open(song.path).unwrap();
+        let file = File::open(&song.path).unwrap();
         let source = Decoder::new(BufReader::new(file)).unwrap();
         self.sink.append(source);
         self.song_loaded = true;
+        self.kill_light_thread();
+        start_light_thread(song, Arc::clone(&self.millisecond_position), Arc::clone(&self.light_thread_toggle), Arc::clone(&self.light_thread_active), Arc::clone(&self.light_thread_reset));
+    }
+
+    fn kill_light_thread(&mut self) {
+        if self.light_thread_active.load(Ordering::Relaxed) {
+            self.light_thread_toggle.store(true, Ordering::Relaxed);
+        }
     }
 
     pub fn play(&mut self) {
@@ -155,7 +171,11 @@ impl AudioPlayer {
         self.sink.try_seek(time).unwrap();
         self.play();
         self.millisecond_position.store(time.as_millis() as u64, Ordering::Relaxed);
-        // TODO Add code for lights to find closest point to the time (add quick path for time = 0)
+        if Duration::is_zero(&time) {
+            self.light_thread_reset.store(true, Ordering::Relaxed);
+        } else {
+            // TODO Add code for lights to find closest point to the time
+        }
     }
 
     pub fn toggle_looping(&mut self) {
@@ -298,9 +318,13 @@ pub fn gather_songs_from_path(path: &String) -> Vec<Song> {
     for file in WalkDir::new(path).min_depth(2).max_depth(3) {
         let song_file = file.unwrap();
         let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
-        let data = gather_metadata(song_path);
-        let song = Song::new(song_path, data.1, data.0 as f32);
-        songs.push(song);
+
+        // Check if the file is a WAV file
+        if song_path.ends_with(".wav") {
+            let data = gather_metadata(song_path);
+            let song = Song::new(song_path, data.1, data.0 as f32);
+            songs.push(song);
+        }
     }
     songs
 }
