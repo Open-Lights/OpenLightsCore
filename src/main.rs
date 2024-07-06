@@ -1,12 +1,15 @@
 #![warn(clippy::all, rust_2018_idioms)]
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
-use open_lights_core::startup;
+use std::fs;
+use std::path::Path;
+
+use open_lights_core::constants::PLAYLIST_DIRECTORY;
 
 // When compiling natively:
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
-    startup::initialize_files();
+    fs::create_dir_all(Path::new(&*PLAYLIST_DIRECTORY)).unwrap();
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
 
     let native_options = eframe::NativeOptions {
@@ -33,28 +36,4 @@ fn main() -> eframe::Result<()> {
             Ok(Box::new(open_lights_core::OpenLightsCore::new(cc)))
         }),
     )
-}
-
-// When compiling to web using trunk:
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    startup::initialize_files();
-    // Redirect `log` message to `console.log` and friends:
-    eframe::WebLogger::init(log::LevelFilter::Debug).ok();
-
-    let web_options = eframe::WebOptions::default();
-
-    wasm_bindgen_futures::spawn_local(async {
-        eframe::WebRunner::new()
-            .start(
-                "the_canvas_id", // hardcode it
-                web_options,
-                Box::new(|cc| {
-                    egui_extras::install_image_loaders(&cc.egui_ctx);
-                    Ok(Box::new(open_lights_core::OpenLightsCore::new(cc)))
-                }),
-            )
-            .await
-            .expect("failed to start eframe");
-    });
 }

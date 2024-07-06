@@ -101,7 +101,7 @@ impl AudioPlayer {
         self.sink.append(source);
         self.song_loaded = true;
         self.kill_light_thread();
-        start_light_thread(song, Arc::clone(&self.millisecond_position), Arc::clone(&self.light_thread_toggle), Arc::clone(&self.light_thread_active), Arc::clone(&self.light_thread_reset));
+        start_light_thread(&song.path, Arc::clone(&self.millisecond_position), Arc::clone(&self.light_thread_toggle), Arc::clone(&self.light_thread_active), Arc::clone(&self.light_thread_reset));
     }
 
     fn kill_light_thread(&mut self) {
@@ -110,7 +110,7 @@ impl AudioPlayer {
         }
     }
 
-    pub fn play(&mut self) {
+    fn play(&mut self) {
         if self.song_loaded {
             self.sink.play();
             self.playing.store(true, Ordering::Relaxed);
@@ -120,32 +120,31 @@ impl AudioPlayer {
         }
     }
 
-    pub fn pause(&mut self) {
+    fn pause(&mut self) {
         self.sink.pause();
         self.playing.store(false, Ordering::Relaxed);
     }
 
-    pub fn get_song_index(&mut self, song: &Song) -> usize {
+    fn get_song_index(&mut self, song: &Song) -> usize {
         self.song_vec.iter().position(|x| x == song).unwrap()
     }
 
-    pub fn shuffle(&mut self) {
+    fn shuffle(&mut self) {
         fastrand::shuffle(&mut self.song_vec);
         self.song_index.store(0, Ordering::Relaxed);
         self.song_loaded = false;
         self.play();
     }
 
-    pub fn set_volume(&mut self, new_volume: f32) {
+    fn set_volume(&mut self, new_volume: f32) {
         self.sink.set_volume(new_volume);
     }
 
-    pub fn get_current_song(&mut self) -> Song {
-        // TODO Maybe remove Clone here?
+    fn get_current_song(&mut self) -> Song {
         self.song_vec.get(self.song_index.load(Ordering::Relaxed)).unwrap().clone()
     }
 
-    pub fn song_override(&mut self, song: &Song) {
+    fn song_override(&mut self, song: &Song) {
         self.pause();
         let index = self.get_song_index(song);
         self.song_index.store(index, Ordering::Relaxed);
@@ -153,7 +152,7 @@ impl AudioPlayer {
         self.play();
     }
 
-    pub fn next_song(&mut self) {
+    fn next_song(&mut self) {
         self.pause();
         let new_index = self.song_index.load(Ordering::Relaxed) + 1;
         self.song_index.store(new_index, Ordering::Relaxed);
@@ -166,23 +165,19 @@ impl AudioPlayer {
         self.play();
     }
 
-    pub fn set_position(&mut self, time: Duration) {
+    fn rewind(&mut self) {
         self.pause();
-        self.sink.try_seek(time).unwrap();
+        self.sink.try_seek(Duration::ZERO).unwrap();
         self.play();
-        self.millisecond_position.store(time.as_millis() as u64, Ordering::Relaxed);
-        if Duration::is_zero(&time) {
-            self.light_thread_reset.store(true, Ordering::Relaxed);
-        } else {
-            // TODO Add code for lights to find closest point to the time
-        }
+        self.millisecond_position.store(0, Ordering::Relaxed);
+        self.light_thread_reset.store(true, Ordering::Relaxed);
     }
 
-    pub fn toggle_looping(&mut self) {
+    fn toggle_looping(&mut self) {
         self.looping.store(!self.looping.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
-    pub fn load_songs_from_playlist(&mut self, playlist: &String) {
+    fn load_songs_from_playlist(&mut self, playlist: &String) {
         let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, &playlist);
         self.song_vec = gather_songs_from_path(&path);
         println!("Loaded songs from playlist: {}", &playlist);
@@ -226,7 +221,7 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         audio_player_safe.set_volume(volume);
                     }
                     AudioThreadActions::Rewind => {
-                        audio_player_safe.set_position(Duration::ZERO);
+                        audio_player_safe.rewind();
                     }
                     AudioThreadActions::Shuffle => {
                         audio_player_safe.shuffle();

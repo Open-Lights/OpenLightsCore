@@ -6,14 +6,14 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread;
 use std::time::Duration;
-//use rppal::gpio::Gpio;
 
 use serde::{Deserialize, Serialize};
-use crate::audio_player::Song;
 
-pub fn start_light_thread(current_song: Song, millisecond_position: Arc<AtomicU64>, toggle: Arc<AtomicBool>, active: Arc<AtomicBool>, reset: Arc<AtomicBool>) {
+//use rppal::gpio::Gpio;
 
-    let mut light_data = gather_light_data(current_song.path.to_string_lossy().to_string());
+pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU64>, toggle: Arc<AtomicBool>, active: Arc<AtomicBool>, reset: Arc<AtomicBool>) {
+
+    let mut light_data = gather_light_data(song_path.to_string_lossy().to_string());
 
     if !light_data.is_empty() {
         while toggle.load(Ordering::Relaxed) { // Ensure there aren't duplicate threads
