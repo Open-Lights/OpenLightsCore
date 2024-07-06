@@ -180,7 +180,17 @@ impl AudioPlayer {
     fn load_songs_from_playlist(&mut self, playlist: &String) {
         let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, &playlist);
         self.song_vec = gather_songs_from_path(&path);
-        println!("Loaded songs from playlist: {}", &playlist);
+    }
+
+    fn clear(&mut self) {
+        self.pause();
+        self.kill_light_thread();
+        self.song_vec.clear();
+        self.progress.store(0, Ordering::Relaxed);
+        self.song_index.store(0, Ordering::Relaxed);
+        self.millisecond_position.store(0, Ordering::Relaxed);
+        self.clicked_index.store(0, Ordering::Relaxed);
+        self.looping.store(false, Ordering::Relaxed);
     }
 }
 
@@ -237,6 +247,9 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         let playlist = playlist_from_index(&audio_player_safe.clicked_index);
                         audio_player_safe.load_songs_from_playlist(&playlist);
                         audio_player_safe.clicked_index.store(0, Ordering::Relaxed);
+                    }
+                    AudioThreadActions::Reset => {
+                        audio_player_safe.clear();
                     }
                 }
             }

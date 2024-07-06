@@ -1,16 +1,19 @@
 use std::cmp::PartialEq;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc, Mutex};
 use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait};
 use eframe::epaint::Color32;
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
+use egui::TextStyle::Body;
+use walkdir::WalkDir;
+
 #[cfg(target_arch = "linux")]
 use rppal::gpio::Gpio;
 
@@ -44,6 +47,7 @@ pub struct OpenLightsCore {
     selected_audio_device: i8,
     audio_devices_cache: Option<Vec<String>>,
     clicked_squares: HashSet<usize>,
+    notifications: VecDeque<Notification>,
 }
 
 impl Default for OpenLightsCore {
@@ -71,6 +75,7 @@ impl Default for OpenLightsCore {
             selected_audio_device: -1,
             audio_devices_cache: None,
             clicked_squares: HashSet::new(),
+            notifications: VecDeque::new(),
         }
     }
 }
@@ -85,6 +90,11 @@ fn heading3() -> TextStyle {
     TextStyle::Name("ContextHeading".into())
 }
 
+#[inline]
+fn notification_font() -> TextStyle {
+    TextStyle::Name("Notification".into())
+}
+
 fn configure_text_styles(ctx: &Context) {
     use FontFamily::Proportional;
     use TextStyle::*;
@@ -94,6 +104,7 @@ fn configure_text_styles(ctx: &Context) {
         (Heading, FontId::new(100.0, Proportional)),
         (heading2(), FontId::new(30.0, Proportional)),
         (heading3(), FontId::new(20.0, Proportional)),
+        (notification_font(), FontId::new(12.0, Proportional)),
         (Body, FontId::new(18.0, Proportional)),
         (Monospace, FontId::new(14.0, Proportional)),
         (Button, FontId::new(14.0, Proportional)),
@@ -136,24 +147,47 @@ impl OpenLightsCore {
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        for (index, option) in self.playlist_vec.iter().enumerate() {
-                            if ui.add(egui::SelectableLabel::new(
-                                &self.playlist == option,
-                                option,
-                            )).clicked() {
-                                self.playlist = option.clone();
-                                self.clicked_index.store(index, Ordering::Relaxed);
+                        if !self.playlist_vec.is_empty() {
+                            for (index, option) in self.playlist_vec.iter().enumerate() {
+                                if ui.add(egui::SelectableLabel::new(
+                                    self.clicked_index.load(Ordering::Relaxed) == index,
+                                    option,
+                                )).clicked() {
+                                    self.playlist = option.clone();
+                                    self.clicked_index.store(index, Ordering::Relaxed);
+                                };
+                                ui.add_space(10.);
+                            }
+
+                            ui.add_space(30.);
+                            if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != "" {
+                                if self.quick_playlist_valid() {
+                                    self.song_vec_cache = None;
+                                    self.messenger.send(AudioThreadActions::LoadFromPlaylist).unwrap();
+                                    self.current_screen = Screen::Jukebox;
+                                } else {
+                                    let notification = Notification {
+                                        title: "Invalid Playlist".to_string(),
+                                        message: format!("The playlist {} does not contain any songs. \
+                                        Please add songs inside of a folder named the same as the song inside of the playlist folder. \
+                                        Ex: /open_lights/playlists/{}/SONG_NAME/SONG_NAME.wav", self.playlist, self.playlist),
+                                        timer: Timer::new(Duration::from_secs(30)),
+                                        id: fastrand::i32(0..i32::MAX),
+                                    };
+                                    self.notifications.push_front(notification);
+                                }
                             };
-                            ui.add_space(10.);
+                        } else {
+                            ui.add_space(30.);
+                            ui.add(egui::Label::new(format!("Please add a playlist folder in {}", &**PLAYLIST_DIRECTORY)));
+                            if ui.add_sized([210., 80.], egui::Button::new("Create Playlist")).clicked() {
+                                let mut path = PathBuf::from(&&*PLAYLIST_DIRECTORY);
+                                path.push("Playlist");
+                                fs::create_dir(path).unwrap();
+                                self.playlist_vec = locate_playlists();
+                            }
                         }
                     });
-
-                ui.add_space(30.);
-                if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != "" {
-                    self.song_vec_cache = None;
-                    self.messenger.send(AudioThreadActions::LoadFromPlaylist).unwrap();
-                    self.current_screen = Screen::Jukebox;
-                };
             });
 
             ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
@@ -166,23 +200,41 @@ impl OpenLightsCore {
         });
     }
 
+    fn quick_playlist_valid(&mut self) -> bool {
+        let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, &self.playlist);
+        for file in WalkDir::new(path).min_depth(2).max_depth(3) {
+            let song_file = file.unwrap();
+            let song_path = song_file.path().to_str().expect("Invalid UTF-8 sequence");
+
+            // Check if the file is a WAV file
+            if song_path.ends_with(".wav") {
+                return true;
+            }
+        }
+        false
+    }
+
     fn top_menu(&mut self, ui: &mut Ui) {
         egui::menu::bar(ui, |ui| {
             egui::widgets::global_dark_light_mode_buttons(ui);
 
             if ui.button("Playlists").clicked() {
+                self.messenger.send(AudioThreadActions::Reset).unwrap();
                 self.current_screen = Screen::Playlist;
             }
 
             if ui.button("Song Manager").clicked() {
+                self.messenger.send(AudioThreadActions::Reset).unwrap();
                 self.current_screen = Screen::FileManager;
             }
 
             if ui.button("Audio Manager").clicked() {
+                self.messenger.send(AudioThreadActions::Reset).unwrap();
                 self.current_screen = Screen::Audio;
             }
 
             if ui.button("Debug").clicked() {
+                self.messenger.send(AudioThreadActions::Reset).unwrap();
                 self.clicked_squares.clear();
                 self.current_screen = Screen::Debug;
             }
@@ -467,6 +519,9 @@ impl OpenLightsCore {
 impl eframe::App for OpenLightsCore {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+
+        show_notification(&ctx, &mut self.notifications);
+
         match self.current_screen {
             Screen::Playlist => self.show_playlist_screen(ctx),
             Screen::Jukebox => self.show_jukebox_screen(ctx),
@@ -602,5 +657,75 @@ impl FileExplorer {
                 self.selected_index = 0;
             }
         }
+    }
+}
+
+#[derive(Clone)]
+struct Notification {
+    title: String,
+    message: String,
+    timer: Timer,
+    id: i32,
+}
+
+fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) {
+    if !notifications.is_empty() {
+        let screen_size = ctx.screen_rect();
+        let notification_size = Vec2 {x: 300.0, y: 100.0};
+        let mut notification_pos = screen_size.max - egui::vec2(notification_size.x + 15.0, notification_size.y + 15.0);
+        let mut notifications_clone = notifications.clone();
+
+        for (index, notification) in notifications_clone.iter_mut().enumerate() {
+
+            if index > 2 {
+                notifications.remove(index);
+                continue;
+            }
+
+            egui::Window::new(format!("Notification{}", notification.id))
+                .title_bar(false)
+                .fixed_pos(notification_pos)
+                .resizable(false)
+                .collapsible(false)
+                .movable(false)
+                .show(ctx, |ui| {
+                    ui.set_min_size(notification_size);
+
+                    ui.add_sized(Vec2 {x: 300.0, y: 20.0}, egui::Label::new(RichText::new(&notification.title).text_style(Body).strong()));
+                    ui.label(RichText::new(&notification.message).text_style(notification_font()).strong());
+
+                    if ui.add_sized(Vec2 {x: 300.0, y: 10.0}, egui::Button::new(RichText::new("Close").text_style(notification_font()).strong())).clicked() {
+                        notifications.remove(index);
+                    }
+
+                });
+
+            notification_pos.y -= notification_size.y + 20.0;
+
+            if notification.timer.update() {
+                notifications.remove(index);
+            }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct Timer {
+    start_time: Instant,
+    duration: Duration,
+}
+
+impl Timer {
+    fn new(duration: Duration) -> Self {
+        Self {
+            start_time: Instant::now(),
+            duration,
+        }
+    }
+
+    fn update(&mut self) -> bool {
+        let current_time = Instant::now();
+        let elapsed_time = current_time.duration_since(self.start_time);
+        elapsed_time >= self.duration
     }
 }

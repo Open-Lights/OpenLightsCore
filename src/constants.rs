@@ -21,4 +21,5 @@ pub enum AudioThreadActions {
     SongOverride,
     RequestSongVec,
     LoadFromPlaylist,
+    Reset,
 }
