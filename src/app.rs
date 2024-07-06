@@ -1,4 +1,5 @@
 use std::cmp::PartialEq;
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc, Mutex};
@@ -7,12 +8,17 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
 
 use cpal::traits::{DeviceTrait, HostTrait};
+use eframe::epaint::Color32;
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
+#[cfg(target_arch = "linux")]
+use rppal::gpio::Gpio;
 
 use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, locate_playlists, Song, start_worker_thread};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
+#[cfg(target_arch = "linux")]
+use crate::lights::{interface_gpio, LightType};
 
 #[derive(PartialEq, Default)]
 enum Screen {
@@ -21,6 +27,7 @@ enum Screen {
     Jukebox,
     FileManager,
     Audio,
+    Debug,
 }
 
 pub struct OpenLightsCore {
@@ -36,6 +43,7 @@ pub struct OpenLightsCore {
     clicked_index: Arc<AtomicUsize>,
     selected_audio_device: i8,
     audio_devices_cache: Option<Vec<String>>,
+    clicked_squares: HashSet<usize>,
 }
 
 impl Default for OpenLightsCore {
@@ -62,6 +70,7 @@ impl Default for OpenLightsCore {
             clicked_index,
             selected_audio_device: -1,
             audio_devices_cache: None,
+            clicked_squares: HashSet::new(),
         }
     }
 }
@@ -171,6 +180,11 @@ impl OpenLightsCore {
 
             if ui.button("Audio Manager").clicked() {
                 self.current_screen = Screen::Audio;
+            }
+
+            if ui.button("Debug").clicked() {
+                self.clicked_squares.clear();
+                self.current_screen = Screen::Debug;
             }
         });
     }
@@ -404,6 +418,50 @@ impl OpenLightsCore {
             });
         });
     }
+
+    fn show_debug_screen(&mut self, ctx: &Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            self.top_menu(ui);
+        });
+        CentralPanel::default().show(ctx, |ui| {
+            ui.with_layout(Layout::top_down(Align::Center), |ui| {
+                ui.label(RichText::new("  Interactable Lights Debug  ").text_style(heading2()).strong().underline());
+                ui.add_space(50.0);
+
+                let square_size = Vec2::new(100.0, 100.0); // Each square is 100x100 pixels
+                let total_size = Vec2::new(400.0, 400.0); // Total area is 400x400 pixels
+
+                ui.allocate_ui_with_layout(total_size, Layout::top_down(Align::Center), |ui| {
+                    for row in 0..4 {
+                        ui.horizontal(|ui| {
+
+                            for col in 0..4 {
+                                let index = row * 4 + col;
+                                let visuals = ui.style().visuals.clone();
+                                let mut color = visuals.widgets.inactive.bg_fill; // Default color
+                                if self.clicked_squares.contains(&index) {
+                                    color = Color32::GREEN; // Change to green if clicked
+                                }
+                                if ui.add_sized(square_size, egui::Button::new(index.to_string()).fill(color)).clicked() {
+                                    #[cfg(target_arch = "linux")]
+                                    let gpio = Gpio::new().unwrap();
+                                    if self.clicked_squares.contains(&index) {
+                                        self.clicked_squares.remove(&index);
+                                        #[cfg(target_arch = "linux")]
+                                        interface_gpio(index as i8, &gpio, &LightType::Off);
+                                    } else {
+                                        self.clicked_squares.insert(index);
+                                        #[cfg(target_arch = "linux")]
+                                        interface_gpio(index as i8, &gpio, &LightType::On);
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+        });
+    }
 }
 
 impl eframe::App for OpenLightsCore {
@@ -414,6 +472,7 @@ impl eframe::App for OpenLightsCore {
             Screen::Jukebox => self.show_jukebox_screen(ctx),
             Screen::FileManager => self.show_file_manager_screen(ctx),
             Screen::Audio => self.show_audio_settings_screen(ctx),
+            Screen::Debug => self.show_debug_screen(ctx),
         }
     }
 }

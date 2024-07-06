@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-//use rppal::gpio::Gpio;
+#[cfg(target_arch = "linux")]
+use rppal::gpio::Gpio;
 
 pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU64>, toggle: Arc<AtomicBool>, active: Arc<AtomicBool>, reset: Arc<AtomicBool>) {
 
@@ -19,7 +20,8 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
         while toggle.load(Ordering::Relaxed) { // Ensure there aren't duplicate threads
             thread::sleep(Duration::from_millis(5));
         }
-        //let gpio = Gpio::new()?;
+        #[cfg(target_arch = "linux")]
+        let gpio = Gpio::new().unwrap();
         active.store(true, Ordering::Relaxed);
         thread::spawn(move || {
             loop {
@@ -38,8 +40,11 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
                     if let Some(target_time) = channel_data.data.get(channel_data.index) {
                         if target_time.timestamp <= millisecond_position.load(Ordering::Relaxed) as i32 {
                             for channel in &channel_data.channels {
+                                #[cfg(not(target_arch = "linux"))]
                                 println!("Correct: {}; Actual: {}", target_time.timestamp, millisecond_position.load(Ordering::Relaxed));
-                                //interface_gpio(channel, &gpio, &target_time.light_type);
+
+                                #[cfg(target_arch = "linux")]
+                                interface_gpio(channel, &gpio, &target_time.light_type);
                             }
                             channel_data.index += 1;
                         }
@@ -52,7 +57,7 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
     }
 }
 
-enum LightType {
+pub enum LightType {
     On,
     Off,
 }
@@ -110,9 +115,9 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
         .collect()
 }
 
-/*
-fn interface_gpio(channel: i8, gpio: &Gpio, light_type: &LightType) {
-    let mut pin = gpio.get(channel as u8)?.into_output();
+#[cfg(target_arch = "linux")]
+pub fn interface_gpio(channel: &i8, gpio: &Gpio, light_type: &LightType) {
+    let mut pin = gpio.get(*channel as u8).unwrap().into_output();
     match light_type {
         LightType::On => {
             pin.set_high();
@@ -122,5 +127,3 @@ fn interface_gpio(channel: i8, gpio: &Gpio, light_type: &LightType) {
         }
     }
 }
-
- */

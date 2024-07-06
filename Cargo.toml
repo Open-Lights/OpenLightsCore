@@ -33,9 +33,6 @@ serde = { version = "1.0.203", features = ["derive"] }
 # Logging Dependencies
 log = "0.4.22"
 
-#GPIO Dependencies
-#rppal = "0.18.0"
-
 # Audio Dependencies
 rodio = {git = "https://github.com/RustAudio/rodio.git"}
 lofty = "0.20.1"
@@ -49,7 +46,9 @@ fastrand = "2.1.0"
 # File Utility Dependencies
 walkdir = "2.5.0"
 
-# Bluetooth
+#GPIO Dependencies
+[target.'cfg(target_arch = "linux")'.dependencies]
+rppal = "0.18.0"
 
 # native:
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
