@@ -46,8 +46,13 @@ fastrand = "2.1.0"
 # File Utility Dependencies
 walkdir = "2.5.0"
 
+# Bluetooth
+bluer = { version = "0.17.2", features = ["bluetoothd"] }
+tokio = "1.38.0"
+futures = "0.3.30"
+
 #GPIO Dependencies
-[target.'cfg(target_arch = "linux")'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 rppal = "0.18.0"
 
 # native:

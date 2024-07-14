@@ -429,7 +429,7 @@ impl OpenLightsCore {
         });
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                ui.label(RichText::new("  Select Audio Device  ").text_style(heading2()).strong().underline());
+                ui.label(RichText::new("  Select Bluetooth Audio Device  ").text_style(heading2()).strong().underline());
                 ui.separator();
 
                 if self.audio_devices_cache.is_none() {
@@ -467,6 +467,18 @@ impl OpenLightsCore {
                             }
                         }
                     });
+
+                ui.separator();
+
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    if ui.button("Refresh").clicked() {
+
+                    }
+
+                    if ui.button("Connect").clicked() {
+
+                    }
+                })
             });
         });
     }

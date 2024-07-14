@@ -3,7 +3,6 @@
 
 use std::fs;
 use std::path::Path;
-
 use open_lights_core::constants::PLAYLIST_DIRECTORY;
 
 // When compiling natively:
