@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(unix)]
+#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
 use rppal::gpio::Gpio;
 
 pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU64>, toggle: Arc<AtomicBool>, active: Arc<AtomicBool>, reset: Arc<AtomicBool>) {
@@ -20,7 +20,7 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
         while toggle.load(Ordering::Relaxed) { // Ensure there aren't duplicate threads
             thread::sleep(Duration::from_millis(5));
         }
-        #[cfg(unix)]
+        #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
         let gpio = Gpio::new().unwrap();
         active.store(true, Ordering::Relaxed);
         thread::spawn(move || {
@@ -40,10 +40,10 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
                     if let Some(target_time) = channel_data.data.get(channel_data.index) {
                         if target_time.timestamp <= millisecond_position.load(Ordering::Relaxed) as i32 {
                             for channel in &channel_data.channels {
-                                #[cfg(not(target_arch = "linux"))]
+                                #[cfg(not(target_arch = "aarch64-unknown-linux-gnu"))]
                                 println!("Correct: {}; Actual: {}", target_time.timestamp, millisecond_position.load(Ordering::Relaxed));
 
-                                #[cfg(unix)]
+                                #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
                                 interface_gpio(channel, &gpio, &target_time.light_type);
                             }
                             channel_data.index += 1;
@@ -115,7 +115,7 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
         .collect()
 }
 
-#[cfg(unix)]
+#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
 pub fn interface_gpio(channel: &i8, gpio: &Gpio, light_type: &LightType) {
     let mut pin = gpio.get(*channel as u8).unwrap().into_output();
     match light_type {

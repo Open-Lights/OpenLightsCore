@@ -13,14 +13,14 @@ use egui::scroll_area::ScrollBarVisibility;
 use egui::TextStyle::Body;
 use walkdir::WalkDir;
 
-#[cfg(unix)]
+#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
 use rppal::gpio::Gpio;
 
 use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, locate_playlists, Song, start_worker_thread};
 use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
-#[cfg(unix)]
+#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
 use crate::lights::{interface_gpio, LightType};
 
 #[derive(PartialEq, Default)]
@@ -534,16 +534,16 @@ impl OpenLightsCore {
                                     color = Color32::GREEN; // Change to green if clicked
                                 }
                                 if ui.add_sized(square_size, egui::Button::new(index.to_string()).fill(color)).clicked() {
-                                    #[cfg(unix)]
+                                    #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
                                     let gpio = Gpio::new().unwrap();
                                     if self.clicked_squares.contains(&index) {
                                         self.clicked_squares.remove(&index);
-                                        #[cfg(unix)]
-                                        interface_gpio(index as i8, &gpio, &LightType::Off);
+                                        #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+                                        interface_gpio(&(index as i8), &gpio, &LightType::Off);
                                     } else {
                                         self.clicked_squares.insert(index);
-                                        #[cfg(unix)]
-                                        interface_gpio(index as i8, &gpio, &LightType::On);
+                                        #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+                                        interface_gpio(&(index as i8), &gpio, &LightType::On);
                                     }
                                 }
                             }
@@ -555,7 +555,7 @@ impl OpenLightsCore {
     }
 }
 
-fn center_objects(object_size: Vec2, item_count: i8, mut ui: &mut Ui) {
+fn center_objects(object_size: Vec2, item_count: i8, ui: &mut Ui) {
     ui.add_space(get_center_offset(object_size, item_count, ui.available_width(), ui.spacing().item_spacing.x));
 }
 

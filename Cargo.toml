@@ -8,7 +8,7 @@ rust-version = "1.76"
 
 [package.metadata.docs.rs]
 all-features = true
-targets = ["x86_64-unknown-linux-gnu", "wasm32-unknown-unknown"]
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
 
 [dependencies]
 
@@ -51,6 +51,7 @@ walkdir = "2.5.0"
 bluez-async = "0.7.2"
 tokio = { version = "1.38.0", features = ["rt-multi-thread", "rt"] }
 
+[target.'cfg(target_arch = "aarch64-unknown-linux-gnu")'.dependencies]
 #GPIO Dependencies
 rppal = "0.18.0"
 

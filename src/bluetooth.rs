@@ -21,7 +21,7 @@ impl BluetoothDevices {
     pub fn refresh_bluetooth(&mut self) {
         let devices_clone = Arc::clone(&self.devices);
         let bt_sender_clone = self.bt_sender.clone();
-        let mut rt = tokio::runtime::Builder::new_multi_thread()
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
@@ -47,7 +47,7 @@ impl BluetoothDevices {
     #[cfg(unix)]
     pub fn connect_to_device(&mut self, device_id: &DeviceId) {
         let bt_sender_clone = self.bt_sender.clone();
-        let mut rt = tokio::runtime::Builder::new_multi_thread()
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
