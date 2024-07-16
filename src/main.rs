@@ -5,8 +5,6 @@ use std::fs;
 use std::path::Path;
 use open_lights_core::constants::PLAYLIST_DIRECTORY;
 
-// When compiling natively:
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result<()> {
     fs::create_dir_all(Path::new(&*PLAYLIST_DIRECTORY)).unwrap();
     env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
@@ -18,6 +16,7 @@ fn main() -> eframe::Result<()> {
             .with_minimize_button(false)
             .with_resizable(false)
             .with_title_shown(false)
+            .with_fullscreen(true)
             .with_icon(
                 // NOTE: Adding an icon is optional
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon.ico")[..])

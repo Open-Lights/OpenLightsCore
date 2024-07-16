@@ -1,8 +1,11 @@
 use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
+#[cfg(unix)]
 use std::time::Duration;
 
+#[cfg(unix)]
 use bluez_async::{BluetoothError, BluetoothSession, DeviceId, MacAddress};
+#[cfg(unix)]
 use tokio::time::sleep;
 
 use crate::app::{Notification, Timer};
@@ -14,6 +17,7 @@ impl BluetoothDevices {
             bt_sender,
         }
     }
+    #[cfg(unix)]
     pub fn refresh_bluetooth(&mut self) {
         let devices_clone = Arc::clone(&self.devices);
         let bt_sender_clone = self.bt_sender.clone();
@@ -40,6 +44,7 @@ impl BluetoothDevices {
         });
     }
 
+    #[cfg(unix)]
     pub fn connect_to_device(&mut self, device_id: &DeviceId) {
         let bt_sender_clone = self.bt_sender.clone();
         let mut rt = tokio::runtime::Builder::new_multi_thread()
@@ -61,7 +66,7 @@ impl BluetoothDevices {
     }
 }
 
-
+#[cfg(unix)]
 async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
 
@@ -89,6 +94,7 @@ async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
     Ok(bluetooth_devices)
 }
 
+#[cfg(unix)]
 async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
     session.connect_with_timeout(&device_id, Duration::from_secs(10)).await
@@ -98,8 +104,10 @@ pub struct BluetoothDevice {
     pub(crate) name: String,
     pub(crate) paired: bool,
     pub connected: bool,
+    #[cfg(unix)]
     pub id: DeviceId,
     pub alias: String,
+    #[cfg(unix)]
     pub mac_address: MacAddress,
 }
 

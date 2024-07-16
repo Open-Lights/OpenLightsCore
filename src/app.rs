@@ -13,14 +13,14 @@ use egui::scroll_area::ScrollBarVisibility;
 use egui::TextStyle::Body;
 use walkdir::WalkDir;
 
-#[cfg(target_arch = "linux")]
+#[cfg(unix)]
 use rppal::gpio::Gpio;
 
 use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, locate_playlists, Song, start_worker_thread};
 use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
-#[cfg(target_arch = "linux")]
+#[cfg(unix)]
 use crate::lights::{interface_gpio, LightType};
 
 #[derive(PartialEq, Default)]
@@ -454,8 +454,10 @@ impl OpenLightsCore {
                                     name: device.name.to_string(),
                                     paired: device.paired,
                                     connected: device.connected,
+                                    #[cfg(unix)]
                                     id: device.id.clone(),
                                     alias: device.alias.to_string(),
+                                    #[cfg(unix)]
                                     mac_address: device.mac_address,
                                 });
                             };
@@ -479,6 +481,7 @@ impl OpenLightsCore {
                     center_objects(button_size, 2, ui);
 
                     if ui.add_sized(button_size, egui::Button::new("Refresh")).clicked() {
+                        #[cfg(unix)]
                         self.bluetooth.refresh_bluetooth();
                         self.selected_bt_device = -1;
                         self.cached_selected_bt_device = None;
@@ -487,6 +490,7 @@ impl OpenLightsCore {
                     if ui.add_sized(button_size, egui::Button::new("Connect")).clicked() {
                         if self.selected_bt_device != -1 {
                             if let Some(device) = &self.cached_selected_bt_device {
+                                #[cfg(unix)]
                                 self.bluetooth.connect_to_device(&device.id);
                             } else {
                                 let notification = Notification {
@@ -530,15 +534,15 @@ impl OpenLightsCore {
                                     color = Color32::GREEN; // Change to green if clicked
                                 }
                                 if ui.add_sized(square_size, egui::Button::new(index.to_string()).fill(color)).clicked() {
-                                    #[cfg(target_arch = "linux")]
+                                    #[cfg(unix)]
                                     let gpio = Gpio::new().unwrap();
                                     if self.clicked_squares.contains(&index) {
                                         self.clicked_squares.remove(&index);
-                                        #[cfg(target_arch = "linux")]
+                                        #[cfg(unix)]
                                         interface_gpio(index as i8, &gpio, &LightType::Off);
                                     } else {
                                         self.clicked_squares.insert(index);
-                                        #[cfg(target_arch = "linux")]
+                                        #[cfg(unix)]
                                         interface_gpio(index as i8, &gpio, &LightType::On);
                                     }
                                 }

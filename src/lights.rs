@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(target_arch = "linux")]
+#[cfg(unix)]
 use rppal::gpio::Gpio;
 
 pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU64>, toggle: Arc<AtomicBool>, active: Arc<AtomicBool>, reset: Arc<AtomicBool>) {
@@ -20,7 +20,7 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
         while toggle.load(Ordering::Relaxed) { // Ensure there aren't duplicate threads
             thread::sleep(Duration::from_millis(5));
         }
-        #[cfg(target_arch = "linux")]
+        #[cfg(unix)]
         let gpio = Gpio::new().unwrap();
         active.store(true, Ordering::Relaxed);
         thread::spawn(move || {
@@ -43,7 +43,7 @@ pub fn start_light_thread(song_path: &PathBuf, millisecond_position: Arc<AtomicU
                                 #[cfg(not(target_arch = "linux"))]
                                 println!("Correct: {}; Actual: {}", target_time.timestamp, millisecond_position.load(Ordering::Relaxed));
 
-                                #[cfg(target_arch = "linux")]
+                                #[cfg(unix)]
                                 interface_gpio(channel, &gpio, &target_time.light_type);
                             }
                             channel_data.index += 1;
@@ -115,7 +115,7 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
         .collect()
 }
 
-#[cfg(target_arch = "linux")]
+#[cfg(unix)]
 pub fn interface_gpio(channel: &i8, gpio: &Gpio, light_type: &LightType) {
     let mut pin = gpio.get(*channel as u8).unwrap().into_output();
     match light_type {
