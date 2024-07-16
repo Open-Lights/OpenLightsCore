@@ -1,86 +1,109 @@
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::mpsc::Sender;
+use std::time::Duration;
 
-use bluer::{Adapter, AdapterEvent, Address, DiscoveryFilter, DiscoveryTransport};
-use futures::{pin_mut, StreamExt};
+use bluez_async::{BluetoothError, BluetoothSession, DeviceId, MacAddress};
+use tokio::time::sleep;
 
-async fn query_device(adapter: &Adapter, addr: Address) -> bluer::Result<()> {
-    let device = adapter.device(addr)?;
-    println!("    Address type:       {}", device.address_type().await?);
-    println!("    Name:               {:?}", device.name().await?);
-    println!("    Icon:               {:?}", device.icon().await?);
-    println!("    Class:              {:?}", device.class().await?);
-    println!("    UUIDs:              {:?}", device.uuids().await?.unwrap_or_default());
-    println!("    Paired:             {:?}", device.is_paired().await?);
-    println!("    Connected:          {:?}", device.is_connected().await?);
-    println!("    Trusted:            {:?}", device.is_trusted().await?);
-    println!("    Modalias:           {:?}", device.modalias().await?);
-    println!("    RSSI:               {:?}", device.rssi().await?);
-    println!("    TX power:           {:?}", device.tx_power().await?);
-    println!("    Manufacturer data:  {:?}", device.manufacturer_data().await?);
-    println!("    Service data:       {:?}", device.service_data().await?);
-    Ok(())
-}
+use crate::app::{Notification, Timer};
 
-async fn query_all_device_properties(adapter: &Adapter, addr: Address) -> bluer::Result<()> {
-    let device = adapter.device(addr)?;
-    let props = device.all_properties().await?;
-    for prop in props {
-        println!("    {:?}", &prop);
-    }
-    Ok(())
-}
-
-#[tokio::main(flavor = "current_thread")]
-pub async fn main() -> bluer::Result<()> {
-
-    let session = bluer::Session::new().await?;
-    let adapter = session.default_adapter().await?;
-    println!("Discovering devices using Bluetooth adapter {}\n", adapter.name());
-    adapter.set_powered(true).await?;
-
-    let filter = DiscoveryFilter {
-        transport: DiscoveryTransport::BrEdr,
-        ..Default::default()
-    };
-    adapter.set_discovery_filter(filter).await?;
-    println!("Using discovery filter:\n{:#?}\n\n", adapter.discovery_filter().await);
-
-    let device_events = adapter.discover_devices().await?;
-    pin_mut!(device_events);
-
-    loop {
-        tokio::select! {
-            Some(device_event) = device_events.next() => {
-                match device_event {
-                    AdapterEvent::DeviceAdded(addr) => {
-
-                        println!("Device added: {addr}");
-                        let res = query_device(&adapter, addr).await;
-                        if let Err(err) = res {
-                            println!("    Error: {}", &err);
-                        }
-                    }
-                    AdapterEvent::DeviceRemoved(addr) => {
-                        println!("Device removed: {addr}");
-                    }
-                    _ => (),
-                }
-                println!();
-            }
-            else => break
+impl BluetoothDevices {
+    pub fn new(bt_sender: Sender<Notification>) -> Self {
+        Self {
+            devices: Arc::new(Mutex::new(Vec::new())),
+            bt_sender,
         }
     }
+    pub fn refresh_bluetooth(&mut self) {
+        let devices_clone = Arc::clone(&self.devices);
+        let bt_sender_clone = self.bt_sender.clone();
+        let mut rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            let devices = locate_devices().await;
+            if let Ok(devices_safe) = devices {
+                let mut locked = devices_clone.lock().unwrap();
+                *locked = devices_safe;
+            } else {
+                let notification = Notification {
+                    title: "Bluetooth Failure".to_string(),
+                    message: "A Bluetooth device has failed to be located.\
+            Please ensure your device supports Bluetooth and there are pairable devices in your area.\
+            Then try refreshing the Bluetooth again.".to_string(),
+                    timer: Timer::new(Duration::from_secs(15)),
+                    id: fastrand::i32(0..i32::MAX),
+                };
+                bt_sender_clone.send(notification).unwrap();
+            }
+        });
+    }
 
-    Ok(())
+    pub fn connect_to_device(&mut self, device_id: &DeviceId) {
+        let bt_sender_clone = self.bt_sender.clone();
+        let mut rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async move {
+            if connect_device(device_id).await.is_err() {
+                let notification = Notification {
+                    title: "Bluetooth Failure".to_string(),
+                    message: "The Bluetooth device that you tried connecting to isn't responding. \
+                    Try restarting the device and then reconnect.".to_string(),
+                    timer: Timer::new(Duration::from_secs(15)),
+                    id: fastrand::i32(0..i32::MAX),
+                };
+                bt_sender_clone.send(notification).unwrap();
+            };
+        });
+    }
+}
+
+
+async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
+    let (_, session) = BluetoothSession::new().await?;
+
+    session.start_discovery().await?;
+    sleep(Duration::from_secs(5)).await;
+    session.stop_discovery().await?;
+
+    let devices = session.get_devices().await?;
+
+    let mut bluetooth_devices: Vec<BluetoothDevice> = Vec::new();
+
+    for device_info in devices {
+        let device = BluetoothDevice {
+            name: device_info.name.unwrap_or("Unknown".to_string()),
+            paired: device_info.paired,
+            connected: device_info.connected,
+            id: device_info.id,
+            alias: device_info.alias.unwrap_or("None".to_string()),
+            mac_address: device_info.mac_address,
+        };
+
+        bluetooth_devices.push(device);
+    }
+
+    Ok(bluetooth_devices)
+}
+
+async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
+    let (_, session) = BluetoothSession::new().await?;
+    session.connect_with_timeout(&device_id, Duration::from_secs(10)).await
 }
 
 pub struct BluetoothDevice {
-    name: String,
-    paired: bool,
-    connected: bool,
+    pub(crate) name: String,
+    pub(crate) paired: bool,
+    pub connected: bool,
+    pub id: DeviceId,
+    pub alias: String,
+    pub mac_address: MacAddress,
 }
 
 pub struct BluetoothDevices {
-    devices: Arc<Mutex<HashMap<Address, BluetoothDevice>>>,
+    pub devices: Arc<Mutex<Vec<BluetoothDevice>>>,
+    bt_sender:  Sender<Notification>,
 }

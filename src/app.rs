@@ -7,7 +7,6 @@ use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use cpal::traits::{DeviceTrait, HostTrait};
 use eframe::epaint::Color32;
 use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
@@ -18,6 +17,7 @@ use walkdir::WalkDir;
 use rppal::gpio::Gpio;
 
 use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, locate_playlists, Song, start_worker_thread};
+use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
 #[cfg(target_arch = "linux")]
@@ -44,10 +44,12 @@ pub struct OpenLightsCore {
     song_vec_receiver: Receiver<Vec<Song>>,
     volume: Arc<AtomicI8>,
     clicked_index: Arc<AtomicUsize>,
-    selected_audio_device: i8,
-    audio_devices_cache: Option<Vec<String>>,
+    selected_bt_device: i8,
+    cached_selected_bt_device: Option<BluetoothDevice>,
     clicked_squares: HashSet<usize>,
     notifications: VecDeque<Notification>,
+    bluetooth: BluetoothDevices,
+    bt_receiver: Receiver<Notification>,
 }
 
 impl Default for OpenLightsCore {
@@ -57,6 +59,8 @@ impl Default for OpenLightsCore {
         let(tx_song_vec, rx_song_vec) = mpsc::channel();
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new(Arc::clone(&volume), Arc::clone(&clicked_index))));
 
+        let (tx_bt, rx_bt) = mpsc::channel();
+        let bluetooth = BluetoothDevices::new(tx_bt);
 
         let (tx, rx) = mpsc::channel();
         start_worker_thread(Arc::clone(&audio_player), rx, tx_song_vec);
@@ -72,10 +76,12 @@ impl Default for OpenLightsCore {
             song_vec_receiver: rx_song_vec,
             volume,
             clicked_index,
-            selected_audio_device: -1,
-            audio_devices_cache: None,
+            selected_bt_device: -1,
+            cached_selected_bt_device: None,
             clicked_squares: HashSet::new(),
             notifications: VecDeque::new(),
+            bluetooth,
+            bt_receiver: rx_bt,
         }
     }
 }
@@ -228,7 +234,7 @@ impl OpenLightsCore {
                 self.current_screen = Screen::FileManager;
             }
 
-            if ui.button("Audio Manager").clicked() {
+            if ui.button("Bluetooth Manager").clicked() {
                 self.messenger.send(AudioThreadActions::Reset).unwrap();
                 self.current_screen = Screen::Audio;
             }
@@ -369,17 +375,10 @@ impl OpenLightsCore {
     }
 
     fn centered_buttons(&mut self, ui: &mut Ui) {
-        let button_count = 5;
         let button_size = Vec2::new(40.0, 40.0); // Width and height of each button
-        let button_spacing = ui.spacing().item_spacing.x;
-        let total_button_width = button_count as f32 * button_size.x + (button_count as f32 - 1.0) * button_spacing;
-
-        // Add space to the left to center the buttons
-        let available_width = ui.available_width();
-        let left_padding = (available_width - total_button_width) / 2.0;
 
         ui.horizontal(|ui| {
-            ui.add_space(left_padding);
+            center_objects(button_size, 5, ui);
 
             if ui.add_sized(button_size, egui::Button::new("⏭")).clicked() {
                 self.messenger.send(AudioThreadActions::Skip).unwrap();
@@ -423,7 +422,7 @@ impl OpenLightsCore {
         }
     }
 
-    fn show_audio_settings_screen(&mut self, ctx: &Context) {
+    fn show_bt_settings_screen(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
         });
@@ -432,51 +431,75 @@ impl OpenLightsCore {
                 ui.label(RichText::new("  Select Bluetooth Audio Device  ").text_style(heading2()).strong().underline());
                 ui.separator();
 
-                if self.audio_devices_cache.is_none() {
-                    let available_hosts = cpal::available_hosts();
-                    for id in available_hosts {
-                        let host = cpal::host_from_id(id).unwrap();
-                        let devices = host.devices().unwrap();
-                        let mut vec = Vec::new();
-                        for device in devices {
-                            let name = device.name().unwrap();
-                            if !name.contains("Microphone") {
-                                vec.push(device.name().unwrap());
-                            }
-                        }
-                        // TODO Add bluetooth devices
-                        self.audio_devices_cache = Some(vec);
-                    }
-                }
-
                 ScrollArea::vertical()
                     .auto_shrink([true, true])
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
                     .show(ui, |ui| {
-                        if let Some(ref audio_devices_cache) = self.audio_devices_cache {
-                            for (index, device) in audio_devices_cache.iter().enumerate() {
-                                if ui.add(egui::SelectableLabel::new(
-                                    self.selected_audio_device == index as i8,
-                                    device,
-                                )).clicked() {
-                                    self.selected_audio_device = index as i8;
-                                    //TODO Display more info on the side
-                                };
-                                ui.add_space(10.);
-                            }
+                        let bt_lock = self.bluetooth.devices.lock().unwrap();
+                        let bt_devices = bt_lock.iter().clone();
+
+                        for (index, device) in bt_devices.enumerate() {
+                            let color = if device.connected {
+                                Color32::GREEN
+                            } else {
+                                ui.style().visuals.text_color()
+                            };
+                            if ui.add(egui::SelectableLabel::new(
+                                self.selected_bt_device == index as i8,
+                                RichText::new(&device.name).color(color),
+                            )).clicked() {
+                                self.selected_bt_device = index as i8;
+                                self.cached_selected_bt_device = Some(BluetoothDevice {
+                                    name: device.name.to_string(),
+                                    paired: device.paired,
+                                    connected: device.connected,
+                                    id: device.id.clone(),
+                                    alias: device.alias.to_string(),
+                                    mac_address: device.mac_address,
+                                });
+                            };
+                            ui.add_space(10.);
                         }
                     });
 
                 ui.separator();
 
-                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    if ui.button("Refresh").clicked() {
+                if let Some(device) = &self.cached_selected_bt_device {
+                    let data = format!("Device Name: {}\n
+                    Device Alias: {}\n
+                    Mac Address: {}\n
+                    Paired: {}\n
+                    Connected: {}", device.name, device.alias, device.mac_address.to_string(), device.paired, device.connected);
+                    ui.label(RichText::new(data).text_style(notification_font()));
+                }
 
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    let button_size = Vec2::new(100., 50.);
+                    center_objects(button_size, 2, ui);
+
+                    if ui.add_sized(button_size, egui::Button::new("Refresh")).clicked() {
+                        self.bluetooth.refresh_bluetooth();
+                        self.selected_bt_device = -1;
+                        self.cached_selected_bt_device = None;
                     }
 
-                    if ui.button("Connect").clicked() {
-
+                    if ui.add_sized(button_size, egui::Button::new("Connect")).clicked() {
+                        if self.selected_bt_device != -1 {
+                            if let Some(device) = &self.cached_selected_bt_device {
+                                self.bluetooth.connect_to_device(&device.id);
+                            } else {
+                                let notification = Notification {
+                                    title: "Bluetooth Connection Failure".to_string(),
+                                    message: "The device to be connected to is no longer present. \
+                                This can happen if a device is selected, the list is refreshed, and then the connection button is pressed. \
+                                Please select a the device again.".to_string(),
+                                    timer: Timer::new(Duration::from_secs(30)),
+                                    id: fastrand::i32(0..i32::MAX),
+                                };
+                                self.notifications.push_front(notification);
+                            };
+                        }
                     }
                 })
             });
@@ -528,17 +551,29 @@ impl OpenLightsCore {
     }
 }
 
+fn center_objects(object_size: Vec2, item_count: i8, mut ui: &mut Ui) {
+    ui.add_space(get_center_offset(object_size, item_count, ui.available_width(), ui.spacing().item_spacing.x));
+}
+
+fn get_center_offset(object_size: Vec2, item_count: i8, available_width: f32, item_spacing: f32) -> f32 {
+    let total_button_width = item_count as f32 * object_size.x + (item_count as f32 - 1.0) * item_spacing;
+    (available_width - total_button_width) / 2.0
+}
+
 impl eframe::App for OpenLightsCore {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
 
         show_notification(&ctx, &mut self.notifications);
+        if let Ok(notification) = self.bt_receiver.try_recv() {
+            self.notifications.push_front(notification);
+        }
 
         match self.current_screen {
             Screen::Playlist => self.show_playlist_screen(ctx),
             Screen::Jukebox => self.show_jukebox_screen(ctx),
             Screen::FileManager => self.show_file_manager_screen(ctx),
-            Screen::Audio => self.show_audio_settings_screen(ctx),
+            Screen::Audio => self.show_bt_settings_screen(ctx),
             Screen::Debug => self.show_debug_screen(ctx),
         }
     }
@@ -673,11 +708,11 @@ impl FileExplorer {
 }
 
 #[derive(Clone)]
-struct Notification {
-    title: String,
-    message: String,
-    timer: Timer,
-    id: i32,
+pub struct Notification {
+    pub title: String,
+    pub message: String,
+    pub timer: Timer,
+    pub id: i32,
 }
 
 fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) {
@@ -722,13 +757,13 @@ fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) 
 }
 
 #[derive(Clone)]
-struct Timer {
-    start_time: Instant,
-    duration: Duration,
+pub struct Timer {
+    pub start_time: Instant,
+    pub duration: Duration,
 }
 
 impl Timer {
-    fn new(duration: Duration) -> Self {
+    pub(crate) fn new(duration: Duration) -> Self {
         Self {
             start_time: Instant::now(),
             duration,

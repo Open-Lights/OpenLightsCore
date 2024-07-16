@@ -38,7 +38,6 @@ rodio = {git = "https://github.com/RustAudio/rodio.git"}
 lofty = "0.20.1"
 hound = "3.5.1"
 once_cell = "1.19.0"
-cpal = "0.15.3"
 
 # Random Dependencies
 fastrand = "2.1.0"
@@ -47,12 +46,11 @@ fastrand = "2.1.0"
 walkdir = "2.5.0"
 
 # Bluetooth
-bluer = { version = "0.17.2", features = ["bluetoothd"] }
-tokio = "1.38.0"
-futures = "0.3.30"
+bluez-async = "0.7.2"
+tokio = { version = "1.38.0", features = ["rt-multi-thread"] }
 
 #GPIO Dependencies
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(target_arch = "arm64")'.dependencies]
 rppal = "0.18.0"
 
 # native:
