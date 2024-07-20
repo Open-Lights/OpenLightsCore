@@ -32,7 +32,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: test
@@ -91,7 +91,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.1
+        uses: actions-rs/toolchain@v1.0.6
         with:
           toolchain: stable
           target: ${{ matrix.TARGET }}
@@ -117,21 +117,21 @@ jobs:
           args: --verbose --release --target=${{ matrix.TARGET }}
 
       - name: Rename build output
-        run: cp target/${{ matrix.TARGET }}/release/eframe_template${{ matrix.EXTENSION }} eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+        run: cp target/${{ matrix.TARGET }}/release/open_lights_coreeframe_template${{ matrix.EXTENSION }} open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
         with:
-          name: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
-          path: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+          name: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+          path: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
       - name: Upload binaries to release
         uses: svenstaro/upload-release-action@v2
         if: ${{ github.event_name == 'push' }}
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
-          asset_name: eframe_template-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+          file: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+          asset_name: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
           tag: ${{ github.ref }}
           prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
           overwrite: true
