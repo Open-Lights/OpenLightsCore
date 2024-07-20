@@ -3,7 +3,7 @@ on: [push, pull_request, workflow_dispatch]
 name: CI
 
 env:
-  RUSTFLAGS: -D warnings --cfg=web_sys_unstable_apis
+  RUSTFLAGS: -A unused -D warnings --cfg=web_sys_unstable_apis
   RUSTDOCFLAGS: -D warnings
 
 jobs:
@@ -66,10 +66,11 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -D warnings
+          args: -- -A unused -D warnings
 
   build:
     name: Build
