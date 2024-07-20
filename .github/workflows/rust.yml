@@ -95,7 +95,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install libraries
-        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+        run: sudo apt update && sudo apt upgrade && sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
 
       - name: Fix PKG_CONFIG_PATH
         run: export "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
