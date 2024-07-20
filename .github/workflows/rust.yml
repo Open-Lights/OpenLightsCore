@@ -87,6 +87,8 @@ jobs:
             TARGET: aarch64-unknown-linux-gnu
           - os: ubuntu-latest
             TARGET: armv7-unknown-linux-musleabihf
+          - os: ubuntu-latest
+            TARGET: x86_64-unknown-linux-gnu
 
     steps:
       - name: Check out repository
@@ -101,12 +103,6 @@ jobs:
           
       - name: Install libraries
         run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
-
-      - name: Get directory names
-        run: ls -d /usr/lib/
-
-      - name: Set PKG_CONFIG_PATH
-        run: export PKG_CONFIG_PATH=/usr/lib/${{ matrix.TARGET }}/pkgconfig:$PKG_CONFIG_PATH
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
