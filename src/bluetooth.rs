@@ -99,7 +99,7 @@ async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
 async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
     session
-        .connect_with_timeout(&device_id, Duration::from_secs(10))
+        .connect_with_timeout(device_id, Duration::from_secs(10))
         .await
 }
 

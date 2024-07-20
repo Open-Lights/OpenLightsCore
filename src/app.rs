@@ -167,7 +167,7 @@ impl OpenLightsCore {
                                     self.clicked_index.load(Ordering::Relaxed) == index,
                                     option,
                                 )).clicked() {
-                                    self.playlist = option.clone();
+                                    self.playlist.clone_from(option);
                                     self.clicked_index.store(index, Ordering::Relaxed);
                                 };
                                 ui.add_space(10.);
@@ -514,7 +514,7 @@ impl OpenLightsCore {
                     Device Alias: {}\n
                     Mac Address: {}\n
                     Paired: {}\n
-                    Connected: {}", device.name, device.alias, device.mac_address.to_string(), device.paired, device.connected);
+                    Connected: {}", device.name, device.alias, device.mac_address, device.paired, device.connected);
                     ui.label(RichText::new(data).text_style(notification_font()));
                 }
 
@@ -705,14 +705,18 @@ impl FileExplorer {
                     });
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    if self.show_edit_buttons && ui
+                    if self.show_edit_buttons
+                        && ui
                             .add_sized(Vec2::new(70.0, 20.0), egui::Button::new("Delete"))
-                            .clicked() {
+                            .clicked()
+                    {
                         self.remove_current_selected();
                     }
-                    if self.selection == Selection::Song && ui
+                    if self.selection == Selection::Song
+                        && ui
                             .add_sized(Vec2::new(90.0, 20.0), egui::Button::new("Playlists"))
-                            .clicked() {
+                            .clicked()
+                    {
                         self.selected_index = 0;
                         self.show_edit_buttons = false;
                         self.selection = Selection::Playlist;
@@ -727,10 +731,11 @@ impl FileExplorer {
             let label = ui.add(egui::SelectableLabel::new(
                 index == self.selected_index,
                 path.file_stem()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned()
-                        .replace('_', " ").to_string(),
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+                    .replace('_', " ")
+                    .to_string(),
             ));
 
             if label.clicked() {
