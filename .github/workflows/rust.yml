@@ -17,7 +17,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -33,7 +33,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
       - uses: actions-rs/cargo@v1
         with:
           command: test
@@ -99,7 +99,7 @@ jobs:
           override: true
           
       - name: Install libraries
-        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa
+        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
