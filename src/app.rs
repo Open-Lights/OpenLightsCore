@@ -174,7 +174,7 @@ impl OpenLightsCore {
                             }
 
                             ui.add_space(30.);
-                            if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && self.playlist != "" {
+                            if ui.add_sized([210., 80.], egui::Button::new("Confirm")).clicked() && !self.playlist.is_empty() {
                                 if self.quick_playlist_valid() {
                                     self.song_vec_cache = None;
                                     self.messenger.send(AudioThreadActions::LoadFromPlaylist).unwrap();
@@ -529,23 +529,21 @@ impl OpenLightsCore {
                         self.cached_selected_bt_device = None;
                     }
 
-                    if ui.add_sized(button_size, egui::Button::new("Connect")).clicked() {
-                        if self.selected_bt_device != -1 {
-                            if let Some(device) = &self.cached_selected_bt_device {
-                                #[cfg(unix)]
-                                self.bluetooth.connect_to_device(&device.id);
-                            } else {
-                                let notification = Notification {
-                                    title: "Bluetooth Connection Failure".to_string(),
-                                    message: "The device to be connected to is no longer present. \
-                                This can happen if a device is selected, the list is refreshed, and then the connection button is pressed. \
-                                Please select a the device again.".to_string(),
-                                    timer: Timer::new(Duration::from_secs(30)),
-                                    id: fastrand::i32(0..i32::MAX),
-                                };
-                                self.notifications.push_front(notification);
+                    if ui.add_sized(button_size, egui::Button::new("Connect")).clicked() && self.selected_bt_device != -1 {
+                        if let Some(device) = &self.cached_selected_bt_device {
+                            #[cfg(unix)]
+                            self.bluetooth.connect_to_device(&device.id);
+                        } else {
+                            let notification = Notification {
+                                title: "Bluetooth Connection Failure".to_string(),
+                                message: "The device to be connected to is no longer present. \
+                            This can happen if a device is selected, the list is refreshed, and then the connection button is pressed. \
+                            Please select a the device again.".to_string(),
+                                timer: Timer::new(Duration::from_secs(30)),
+                                id: fastrand::i32(0..i32::MAX),
                             };
-                        }
+                            self.notifications.push_front(notification);
+                        };
                     }
                 })
             });
@@ -630,7 +628,7 @@ fn get_center_offset(
 impl eframe::App for OpenLightsCore {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-        show_notification(&ctx, &mut self.notifications);
+        show_notification(ctx, &mut self.notifications);
         if let Ok(notification) = self.bt_receiver.try_recv() {
             self.notifications.push_front(notification);
         }
@@ -663,7 +661,7 @@ struct FileExplorer {
 impl FileExplorer {
     fn new() -> Self {
         let playlists =
-            Self::read_directory((&PLAYLIST_DIRECTORY).as_ref()).unwrap_or_else(|_| vec![]);
+            Self::read_directory(PLAYLIST_DIRECTORY.as_ref()).unwrap_or_else(|_| vec![]);
         Self {
             selection: Selection::Playlist,
             playlists,
@@ -707,23 +705,17 @@ impl FileExplorer {
                     });
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                    if self.show_edit_buttons {
-                        if ui
+                    if self.show_edit_buttons && ui
                             .add_sized(Vec2::new(70.0, 20.0), egui::Button::new("Delete"))
-                            .clicked()
-                        {
-                            self.remove_current_selected();
-                        }
+                            .clicked() {
+                        self.remove_current_selected();
                     }
-                    if self.selection == Selection::Song {
-                        if ui
+                    if self.selection == Selection::Song && ui
                             .add_sized(Vec2::new(90.0, 20.0), egui::Button::new("Playlists"))
-                            .clicked()
-                        {
-                            self.selected_index = 0;
-                            self.show_edit_buttons = false;
-                            self.selection = Selection::Playlist;
-                        }
+                            .clicked() {
+                        self.selected_index = 0;
+                        self.show_edit_buttons = false;
+                        self.selection = Selection::Playlist;
                     }
                 });
             });
@@ -734,14 +726,11 @@ impl FileExplorer {
         for (index, path) in self.playlists.iter().enumerate() {
             let label = ui.add(egui::SelectableLabel::new(
                 index == self.selected_index,
-                format!(
-                    "{}",
-                    path.file_stem()
+                path.file_stem()
                         .unwrap()
                         .to_string_lossy()
                         .into_owned()
-                        .replace('_', " ")
-                ),
+                        .replace('_', " ").to_string(),
             ));
 
             if label.clicked() {

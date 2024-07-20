@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use rppal::gpio::Gpio;
 
 pub fn start_light_thread(
-    song_path: &PathBuf,
+    song_path: &Path,
     millisecond_position: Arc<AtomicU64>,
     toggle: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
@@ -90,7 +90,7 @@ fn gather_light_data(song_path: String) -> Vec<ChannelData> {
     let path_string = song_path.replace("wav", "json");
     let path = PathBuf::from(path_string);
 
-    let file = match File::open(&path) {
+    let file = match File::open(path) {
         Ok(file) => file,
         Err(_) => return Vec::new(),
     };
