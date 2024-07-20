@@ -3,7 +3,7 @@ on: [push, pull_request, workflow_dispatch]
 name: CI
 
 env:
-  RUSTFLAGS: -A unused -D warnings --cfg=web_sys_unstable_apis
+  RUSTFLAGS: -A unused -D warnings
   RUSTDOCFLAGS: -D warnings
 
 jobs:
@@ -17,7 +17,6 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -33,7 +32,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: test
@@ -66,44 +65,38 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
-          args: -- -A unused -D warnings
+          args: -- -D warnings
 
   build:
-    name: Build
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
-            TARGET: arm-unknown-linux-musleabihf
-          - os: ubuntu-latest
-            TARGET: armv7-unknown-linux-musleabihf
-          - os: ubuntu-latest
             TARGET: aarch64-unknown-linux-gnu
+
           - os: ubuntu-latest
-            TARGET: armv7-unknown-linux-musleabihf
+            TARGET: armv7-unknown-linux-gnueabihf
 
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
+      - name: Building ${{ matrix.TARGET }}
+        run: echo "${{ matrix.TARGET }}"
 
-      - name: Install libraries
-        run: sudo apt update && sudo apt upgrade && sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+      - uses: actions/checkout@master
+      - name: Install build dependencies - Rustup
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable --profile default --target ${{ matrix.TARGET }} -y
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
-      - name: Fix PKG_CONFIG_PATH
-        run: export "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
-
-      - name: Set up Rust toolchain
-        uses: actions-rs/toolchain@v1.0.6
-        with:
-          toolchain: stable
-          target: ${{ matrix.TARGET }}
-          override: true
+      # For linux, it's necessary to use cross from the git repository to avoid glibc problems
+      # Ref: https://github.com/cross-rs/cross/issues/1510
+      - name: Install cross for linux
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross --rev 1b8cf50d20180c1a394099e608141480f934b7f7
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -117,24 +110,20 @@ jobs:
           save-if: "true"
           cache-provider: "github"
 
-      - name: Build project
-        uses: actions-rs/cargo@v1
-        with:
-          use-cross: true
-          command: build
-          args: --verbose --release --target=${{ matrix.TARGET }}
+      - name: Build
+        run: |
+          cross build --verbose --release --target=${{ matrix.TARGET }}
 
-      - name: Rename build output
+      - name: Rename
         run: cp target/${{ matrix.TARGET }}/release/open_lights_core${{ matrix.EXTENSION }} open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v3
+      - uses: actions/upload-artifact@master
         with:
           name: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
           path: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
+      - uses: svenstaro/upload-release-action@v2
+        name: Upload binaries to release
         if: ${{ github.event_name == 'push' }}
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
