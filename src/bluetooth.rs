@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc::Sender;
+use std::sync::{Arc, Mutex};
 #[cfg(unix)]
 use std::time::Duration;
 
@@ -56,7 +56,8 @@ impl BluetoothDevices {
                 let notification = Notification {
                     title: "Bluetooth Failure".to_string(),
                     message: "The Bluetooth device that you tried connecting to isn't responding. \
-                    Try restarting the device and then reconnect.".to_string(),
+                    Try restarting the device and then reconnect."
+                        .to_string(),
                     timer: Timer::new(Duration::from_secs(15)),
                     id: fastrand::i32(0..i32::MAX),
                 };
@@ -97,7 +98,9 @@ async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
 #[cfg(unix)]
 async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
-    session.connect_with_timeout(&device_id, Duration::from_secs(10)).await
+    session
+        .connect_with_timeout(&device_id, Duration::from_secs(10))
+        .await
 }
 
 pub struct BluetoothDevice {
@@ -113,5 +116,5 @@ pub struct BluetoothDevice {
 
 pub struct BluetoothDevices {
     pub devices: Arc<Mutex<Vec<BluetoothDevice>>>,
-    bt_sender:  Sender<Notification>,
+    bt_sender: Sender<Notification>,
 }

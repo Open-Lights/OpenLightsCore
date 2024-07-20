@@ -1,12 +1,12 @@
-use std::{fs, thread};
 use std::cmp::PartialEq;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, AtomicI8, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{fs, thread};
 
 use lofty::file::TaggedFileExt;
 use lofty::prelude::*;
@@ -25,12 +25,16 @@ pub struct Song {
     pub duration: f32,
 }
 
-
 impl Song {
     fn new(path: &str, artist: String, duration: f32) -> Self {
         let path_ref = Path::new(&path);
         let path: PathBuf = path_ref.to_path_buf();
-        let name: String = path.file_stem().unwrap().to_string_lossy().into_owned().replace('_', " ");
+        let name: String = path
+            .file_stem()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned()
+            .replace('_', " ");
         Self {
             name,
             artist,
@@ -101,7 +105,13 @@ impl AudioPlayer {
         self.sink.append(source);
         self.song_loaded = true;
         self.kill_light_thread();
-        start_light_thread(&song.path, Arc::clone(&self.millisecond_position), Arc::clone(&self.light_thread_toggle), Arc::clone(&self.light_thread_active), Arc::clone(&self.light_thread_reset));
+        start_light_thread(
+            &song.path,
+            Arc::clone(&self.millisecond_position),
+            Arc::clone(&self.light_thread_toggle),
+            Arc::clone(&self.light_thread_active),
+            Arc::clone(&self.light_thread_reset),
+        );
     }
 
     fn kill_light_thread(&mut self) {
@@ -141,7 +151,10 @@ impl AudioPlayer {
     }
 
     fn get_current_song(&mut self) -> Song {
-        self.song_vec.get(self.song_index.load(Ordering::Relaxed)).unwrap().clone()
+        self.song_vec
+            .get(self.song_index.load(Ordering::Relaxed))
+            .unwrap()
+            .clone()
     }
 
     fn song_override(&mut self, song: &Song) {
@@ -174,7 +187,8 @@ impl AudioPlayer {
     }
 
     fn toggle_looping(&mut self) {
-        self.looping.store(!self.looping.load(Ordering::Relaxed), Ordering::Relaxed);
+        self.looping
+            .store(!self.looping.load(Ordering::Relaxed), Ordering::Relaxed);
     }
 
     fn load_songs_from_playlist(&mut self, playlist: &String) {
@@ -204,7 +218,11 @@ pub fn set_atomic_float(float: &Arc<AtomicU32>, value: f32) {
     float.store(value_as_u32, Ordering::Relaxed);
 }
 
-pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Receiver<AudioThreadActions>, song_vec_sender: Sender<Vec<Song>>) {
+pub fn start_worker_thread(
+    audio_player: Arc<Mutex<AudioPlayer>>,
+    receiver: Receiver<AudioThreadActions>,
+    song_vec_sender: Sender<Vec<Song>>,
+) {
     thread::spawn(move || {
         loop {
             // Check for messages
@@ -227,7 +245,8 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         audio_player_safe.toggle_looping();
                     }
                     AudioThreadActions::Volume => {
-                        let volume = audio_player_safe.volume.load(Ordering::Relaxed) as f32 / 100.0;
+                        let volume =
+                            audio_player_safe.volume.load(Ordering::Relaxed) as f32 / 100.0;
                         audio_player_safe.set_volume(volume);
                     }
                     AudioThreadActions::Rewind => {
@@ -237,11 +256,17 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                         audio_player_safe.shuffle();
                     }
                     AudioThreadActions::SongOverride => {
-                        let song = audio_player_safe.song_vec.get(audio_player_safe.clicked_index.load(Ordering::Relaxed)).unwrap().clone();
+                        let song = audio_player_safe
+                            .song_vec
+                            .get(audio_player_safe.clicked_index.load(Ordering::Relaxed))
+                            .unwrap()
+                            .clone();
                         audio_player_safe.song_override(&song);
                     }
                     AudioThreadActions::RequestSongVec => {
-                        song_vec_sender.send(audio_player_safe.song_vec.clone()).unwrap();
+                        song_vec_sender
+                            .send(audio_player_safe.song_vec.clone())
+                            .unwrap();
                     }
                     AudioThreadActions::LoadFromPlaylist => {
                         let playlist = playlist_from_index(&audio_player_safe.clicked_index);
@@ -259,12 +284,20 @@ pub fn start_worker_thread(audio_player: Arc<Mutex<AudioPlayer>>, receiver: Rece
                 let mut audio_player_safe = audio_player.lock().unwrap();
                 if audio_player_safe.playing.load(Ordering::Relaxed) {
                     let pos = audio_player_safe.sink.get_pos().as_millis();
-                    audio_player_safe.millisecond_position.store(pos as u64, Ordering::Relaxed);
+                    audio_player_safe
+                        .millisecond_position
+                        .store(pos as u64, Ordering::Relaxed);
                     let seconds = pos / 1000;
-                    set_atomic_float(&audio_player_safe.progress, (seconds as f64 / get_atomic_float(&audio_player_safe.song_duration) as f64) as f32);
+                    set_atomic_float(
+                        &audio_player_safe.progress,
+                        (seconds as f64 / get_atomic_float(&audio_player_safe.song_duration) as f64)
+                            as f32,
+                    );
 
                     // Check for song finished
-                    if get_atomic_float(&audio_player_safe.progress) >= 0.99 && audio_player_safe.sink.empty() {
+                    if get_atomic_float(&audio_player_safe.progress) >= 0.99
+                        && audio_player_safe.sink.empty()
+                    {
                         if audio_player_safe.looping.load(Ordering::Relaxed) {
                             audio_player_safe.prepare_song();
                             audio_player_safe.play();
@@ -288,7 +321,11 @@ fn gather_metadata(path: &str) -> (f64, String) {
     let duration_seconds = duration as f64 / spec.sample_rate as f64;
 
     let mut reader = BufReader::new(File::open(path).unwrap());
-    let tagged_file = Probe::new(&mut reader).guess_file_type().unwrap().read().unwrap();
+    let tagged_file = Probe::new(&mut reader)
+        .guess_file_type()
+        .unwrap()
+        .read()
+        .unwrap();
     if let Some(tag) = tagged_file.primary_tag() {
         let artist = tag.artist();
         let author = artist.as_deref().unwrap_or("Unknown");

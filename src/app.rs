@@ -2,25 +2,31 @@ use std::cmp::PartialEq;
 use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, mpsc, Mutex};
 use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use eframe::epaint::Color32;
-use egui::{Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea, TextStyle, Ui, Vec2};
 use egui::scroll_area::ScrollBarVisibility;
 use egui::TextStyle::Body;
+use egui::{
+    Align, CentralPanel, Context, FontFamily, FontId, Layout, ProgressBar, RichText, ScrollArea,
+    TextStyle, Ui, Vec2,
+};
 use walkdir::WalkDir;
 
-#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+#[cfg(not(target_arch = "x86_64"))]
 use rppal::gpio::Gpio;
 
-use crate::audio_player::{AudioPlayer, gather_songs_from_path, get_atomic_float, locate_playlists, Song, start_worker_thread};
+use crate::audio_player::{
+    gather_songs_from_path, get_atomic_float, locate_playlists, start_worker_thread, AudioPlayer,
+    Song,
+};
 use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
-#[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+#[cfg(not(target_arch = "x86_64"))]
 use crate::lights::{interface_gpio, LightType};
 
 #[derive(PartialEq, Default)]
@@ -56,8 +62,11 @@ impl Default for OpenLightsCore {
     fn default() -> Self {
         let volume = Arc::new(AtomicI8::new(100));
         let clicked_index = Arc::new(AtomicUsize::new(0));
-        let(tx_song_vec, rx_song_vec) = mpsc::channel();
-        let audio_player = Arc::new(Mutex::new(AudioPlayer::new(Arc::clone(&volume), Arc::clone(&clicked_index))));
+        let (tx_song_vec, rx_song_vec) = mpsc::channel();
+        let audio_player = Arc::new(Mutex::new(AudioPlayer::new(
+            Arc::clone(&volume),
+            Arc::clone(&clicked_index),
+        )));
 
         let (tx_bt, rx_bt) = mpsc::channel();
         let bluetooth = BluetoothDevices::new(tx_bt);
@@ -116,7 +125,7 @@ fn configure_text_styles(ctx: &Context) {
         (Button, FontId::new(14.0, Proportional)),
         (Small, FontId::new(10.0, Proportional)),
     ]
-        .into();
+    .into();
     ctx.set_style(style);
 }
 
@@ -131,7 +140,6 @@ impl OpenLightsCore {
     }
 
     fn show_playlist_screen(&mut self, ctx: &Context) {
-
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             let _ = &self.top_menu(ui);
         });
@@ -256,8 +264,11 @@ impl OpenLightsCore {
         });
 
         if self.song_vec_cache.is_none() {
-            self.messenger.send(AudioThreadActions::RequestSongVec).unwrap();
-            self.song_vec_cache = Some(self.song_vec_receiver.recv().unwrap_or_else(|_| Vec::new()));
+            self.messenger
+                .send(AudioThreadActions::RequestSongVec)
+                .unwrap();
+            self.song_vec_cache =
+                Some(self.song_vec_receiver.recv().unwrap_or_else(|_| Vec::new()));
         }
 
         let current_song = {
@@ -270,12 +281,16 @@ impl OpenLightsCore {
             }
         };
 
-
         // Center
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 // Playlist
-                ui.label(RichText::new("  Playlist  ").text_style(heading2()).strong().underline());
+                ui.label(
+                    RichText::new("  Playlist  ")
+                        .text_style(heading2())
+                        .strong()
+                        .underline(),
+                );
 
                 ScrollArea::vertical()
                     .auto_shrink([true, true])
@@ -284,12 +299,17 @@ impl OpenLightsCore {
                     .show(ui, |ui| {
                         if let Some(ref song_vec) = self.song_vec_cache {
                             for (index, song) in song_vec.iter().enumerate() {
-                                if ui.add(egui::SelectableLabel::new(
-                                    &current_song == song,
-                                    format!("{} by {}", song.name, song.artist),
-                                )).clicked() {
+                                if ui
+                                    .add(egui::SelectableLabel::new(
+                                        &current_song == song,
+                                        format!("{} by {}", song.name, song.artist),
+                                    ))
+                                    .clicked()
+                                {
                                     self.clicked_index.store(index, Ordering::Relaxed);
-                                    self.messenger.send(AudioThreadActions::SongOverride).unwrap();
+                                    self.messenger
+                                        .send(AudioThreadActions::SongOverride)
+                                        .unwrap();
                                 };
                                 ui.add_space(10.);
                             }
@@ -315,7 +335,6 @@ impl OpenLightsCore {
 
                 // Slider
                 Self::centered_volume_slider(self, ui);
-
             });
         });
     }
@@ -330,7 +349,6 @@ impl OpenLightsCore {
     }
 
     fn centered_song_progress_display(&mut self, ui: &mut Ui) {
-
         let audio_player_safe = self.audio_player.lock().unwrap();
         let progress = &audio_player_safe.progress.clone();
         let ms_pos = &audio_player_safe.millisecond_position.clone();
@@ -340,7 +358,13 @@ impl OpenLightsCore {
         let bar = ProgressBar::new(get_atomic_float(progress)).animate(false);
 
         // Get the width of the text to center it
-        let text = format!("{} / {}", Self::format_time(Self::milliseconds_to_seconds(ms_pos.load(Ordering::Relaxed))), Self::format_time(get_atomic_float(song_duration) as i32));
+        let text = format!(
+            "{} / {}",
+            Self::format_time(Self::milliseconds_to_seconds(
+                ms_pos.load(Ordering::Relaxed)
+            )),
+            Self::format_time(get_atomic_float(song_duration) as i32)
+        );
 
         // Layout the progress bar
         ui.vertical_centered(|ui| {
@@ -349,10 +373,7 @@ impl OpenLightsCore {
 
             // Calculate the position to center the text
             let rect = response.rect;
-            let text_pos = egui::pos2(
-                rect.center().x,
-                rect.center().y,
-            );
+            let text_pos = egui::pos2(rect.center().x, rect.center().y);
 
             // Paint the centered text
             ui.painter().text(
@@ -393,8 +414,14 @@ impl OpenLightsCore {
             let looping = audio_player_safe.looping.clone();
             drop(audio_player_safe);
             let playing = playing_clone.load(Ordering::Relaxed);
-            if ui.add_sized(button_size, egui::Button::new(if playing { "⏸" } else { "▶" })).clicked() {
-                if playing  {
+            if ui
+                .add_sized(
+                    button_size,
+                    egui::Button::new(if playing { "⏸" } else { "▶" }),
+                )
+                .clicked()
+            {
+                if playing {
                     self.messenger.send(AudioThreadActions::Pause).unwrap();
                 } else {
                     self.messenger.send(AudioThreadActions::Play).unwrap();
@@ -406,7 +433,13 @@ impl OpenLightsCore {
                 self.messenger.send(AudioThreadActions::Shuffle).unwrap();
             }
 
-            if ui.add_sized(button_size, egui::SelectableLabel::new(looping.load(Ordering::Relaxed), "🔁")).clicked() {
+            if ui
+                .add_sized(
+                    button_size,
+                    egui::SelectableLabel::new(looping.load(Ordering::Relaxed), "🔁"),
+                )
+                .clicked()
+            {
                 self.messenger.send(AudioThreadActions::Loop).unwrap();
             }
         });
@@ -416,7 +449,15 @@ impl OpenLightsCore {
         let slider_width = Vec2::new(200., 50.);
         let mut slider_percent = self.volume.load(Ordering::Relaxed);
 
-        if ui.add_sized(slider_width, egui::Slider::new(&mut slider_percent, 0..=100).text("Volume").suffix("%")).drag_stopped {
+        if ui
+            .add_sized(
+                slider_width,
+                egui::Slider::new(&mut slider_percent, 0..=100)
+                    .text("Volume")
+                    .suffix("%"),
+            )
+            .drag_stopped
+        {
             self.volume.store(slider_percent, Ordering::Relaxed);
             self.messenger.send(AudioThreadActions::Volume).unwrap();
         }
@@ -517,7 +558,12 @@ impl OpenLightsCore {
         });
         CentralPanel::default().show(ctx, |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
-                ui.label(RichText::new("  Interactable Lights Debug  ").text_style(heading2()).strong().underline());
+                ui.label(
+                    RichText::new("  Interactable Lights Debug  ")
+                        .text_style(heading2())
+                        .strong()
+                        .underline(),
+                );
                 ui.add_space(50.0);
 
                 let square_size = Vec2::new(100.0, 100.0); // Each square is 100x100 pixels
@@ -526,7 +572,6 @@ impl OpenLightsCore {
                 ui.allocate_ui_with_layout(total_size, Layout::top_down(Align::Center), |ui| {
                     for row in 0..4 {
                         ui.horizontal(|ui| {
-
                             for col in 0..4 {
                                 let index = row * 4 + col;
                                 let visuals = ui.style().visuals.clone();
@@ -534,16 +579,22 @@ impl OpenLightsCore {
                                 if self.clicked_squares.contains(&index) {
                                     color = Color32::GREEN; // Change to green if clicked
                                 }
-                                if ui.add_sized(square_size, egui::Button::new(index.to_string()).fill(color)).clicked() {
-                                    #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+                                if ui
+                                    .add_sized(
+                                        square_size,
+                                        egui::Button::new(index.to_string()).fill(color),
+                                    )
+                                    .clicked()
+                                {
+                                    #[cfg(not(target_arch = "x86_64"))]
                                     let gpio = Gpio::new().unwrap();
                                     if self.clicked_squares.contains(&index) {
                                         self.clicked_squares.remove(&index);
-                                        #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+                                        #[cfg(not(target_arch = "x86_64"))]
                                         interface_gpio(&(index as i8), &gpio, &LightType::Off);
                                     } else {
                                         self.clicked_squares.insert(index);
-                                        #[cfg(target_arch = "aarch64-unknown-linux-gnu")]
+                                        #[cfg(not(target_arch = "x86_64"))]
                                         interface_gpio(&(index as i8), &gpio, &LightType::On);
                                     }
                                 }
@@ -557,18 +608,28 @@ impl OpenLightsCore {
 }
 
 fn center_objects(object_size: Vec2, item_count: i8, ui: &mut Ui) {
-    ui.add_space(get_center_offset(object_size, item_count, ui.available_width(), ui.spacing().item_spacing.x));
+    ui.add_space(get_center_offset(
+        object_size,
+        item_count,
+        ui.available_width(),
+        ui.spacing().item_spacing.x,
+    ));
 }
 
-fn get_center_offset(object_size: Vec2, item_count: i8, available_width: f32, item_spacing: f32) -> f32 {
-    let total_button_width = item_count as f32 * object_size.x + (item_count as f32 - 1.0) * item_spacing;
+fn get_center_offset(
+    object_size: Vec2,
+    item_count: i8,
+    available_width: f32,
+    item_spacing: f32,
+) -> f32 {
+    let total_button_width =
+        item_count as f32 * object_size.x + (item_count as f32 - 1.0) * item_spacing;
     (available_width - total_button_width) / 2.0
 }
 
 impl eframe::App for OpenLightsCore {
     /// Called each time the UI needs repainting, which may be many times per second.
     fn update(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
-
         show_notification(&ctx, &mut self.notifications);
         if let Ok(notification) = self.bt_receiver.try_recv() {
             self.notifications.push_front(notification);
@@ -601,7 +662,8 @@ struct FileExplorer {
 
 impl FileExplorer {
     fn new() -> Self {
-        let playlists = Self::read_directory((&PLAYLIST_DIRECTORY).as_ref()).unwrap_or_else(|_| vec![]);
+        let playlists =
+            Self::read_directory((&PLAYLIST_DIRECTORY).as_ref()).unwrap_or_else(|_| vec![]);
         Self {
             selection: Selection::Playlist,
             playlists,
@@ -624,31 +686,40 @@ impl FileExplorer {
         CentralPanel::default().show(ui.ctx(), |ui| {
             ui.with_layout(Layout::top_down(Align::Center), |ui| {
                 // Playlist
-                ui.label(RichText::new("  Playlist  ").text_style(heading2()).strong().underline());
+                ui.label(
+                    RichText::new("  Playlist  ")
+                        .text_style(heading2())
+                        .strong()
+                        .underline(),
+                );
 
                 ScrollArea::vertical()
                     .auto_shrink([true, true])
                     .max_height(200.)
                     .scroll_bar_visibility(ScrollBarVisibility::AlwaysHidden)
-                    .show(ui, |ui| {
-                        match self.selection {
-                            Selection::Playlist => {
-                                self.render_playlists(ui);
-                            }
-                            Selection::Song => {
-                                self.render_songs(ui);
-                            }
+                    .show(ui, |ui| match self.selection {
+                        Selection::Playlist => {
+                            self.render_playlists(ui);
+                        }
+                        Selection::Song => {
+                            self.render_songs(ui);
                         }
                     });
 
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                     if self.show_edit_buttons {
-                        if ui.add_sized(Vec2::new(70.0, 20.0), egui::Button::new("Delete")).clicked() {
+                        if ui
+                            .add_sized(Vec2::new(70.0, 20.0), egui::Button::new("Delete"))
+                            .clicked()
+                        {
                             self.remove_current_selected();
                         }
                     }
                     if self.selection == Selection::Song {
-                        if ui.add_sized(Vec2::new(90.0, 20.0), egui::Button::new("Playlists")).clicked() {
+                        if ui
+                            .add_sized(Vec2::new(90.0, 20.0), egui::Button::new("Playlists"))
+                            .clicked()
+                        {
                             self.selected_index = 0;
                             self.show_edit_buttons = false;
                             self.selection = Selection::Playlist;
@@ -663,7 +734,14 @@ impl FileExplorer {
         for (index, path) in self.playlists.iter().enumerate() {
             let label = ui.add(egui::SelectableLabel::new(
                 index == self.selected_index,
-                format!("{}", path.file_stem().unwrap().to_string_lossy().into_owned().replace('_', " ")),
+                format!(
+                    "{}",
+                    path.file_stem()
+                        .unwrap()
+                        .to_string_lossy()
+                        .into_owned()
+                        .replace('_', " ")
+                ),
             ));
 
             if label.clicked() {
@@ -682,10 +760,13 @@ impl FileExplorer {
 
     fn render_songs(&mut self, ui: &mut Ui) {
         for (index, song) in self.songs.iter().enumerate() {
-            if ui.add(egui::SelectableLabel::new(
-                index == self.selected_index,
-                format!("{} by {}", song.name, song.artist),
-            )).clicked() {
+            if ui
+                .add(egui::SelectableLabel::new(
+                    index == self.selected_index,
+                    format!("{} by {}", song.name, song.artist),
+                ))
+                .clicked()
+            {
                 self.show_edit_buttons = true;
                 self.selected_index = index;
             };
@@ -723,12 +804,12 @@ pub struct Notification {
 fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) {
     if !notifications.is_empty() {
         let screen_size = ctx.screen_rect();
-        let notification_size = Vec2 {x: 300.0, y: 100.0};
-        let mut notification_pos = screen_size.max - egui::vec2(notification_size.x + 15.0, notification_size.y + 15.0);
+        let notification_size = Vec2 { x: 300.0, y: 100.0 };
+        let mut notification_pos =
+            screen_size.max - egui::vec2(notification_size.x + 15.0, notification_size.y + 15.0);
         let mut notifications_clone = notifications.clone();
 
         for (index, notification) in notifications_clone.iter_mut().enumerate() {
-
             if index > 2 {
                 notifications.remove(index);
                 continue;
@@ -743,13 +824,31 @@ fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) 
                 .show(ctx, |ui| {
                     ui.set_min_size(notification_size);
 
-                    ui.add_sized(Vec2 {x: 300.0, y: 20.0}, egui::Label::new(RichText::new(&notification.title).text_style(Body).strong()));
-                    ui.label(RichText::new(&notification.message).text_style(notification_font()).strong());
+                    ui.add_sized(
+                        Vec2 { x: 300.0, y: 20.0 },
+                        egui::Label::new(
+                            RichText::new(&notification.title).text_style(Body).strong(),
+                        ),
+                    );
+                    ui.label(
+                        RichText::new(&notification.message)
+                            .text_style(notification_font())
+                            .strong(),
+                    );
 
-                    if ui.add_sized(Vec2 {x: 300.0, y: 10.0}, egui::Button::new(RichText::new("Close").text_style(notification_font()).strong())).clicked() {
+                    if ui
+                        .add_sized(
+                            Vec2 { x: 300.0, y: 10.0 },
+                            egui::Button::new(
+                                RichText::new("Close")
+                                    .text_style(notification_font())
+                                    .strong(),
+                            ),
+                        )
+                        .clicked()
+                    {
                         notifications.remove(index);
                     }
-
                 });
 
             notification_pos.y -= notification_size.y + 20.0;
