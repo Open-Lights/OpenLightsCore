@@ -467,6 +467,7 @@ impl OpenLightsCore {
 
                 ui.separator();
 
+                #[cfg(unix)]
                 if let Some(device) = &self.cached_selected_bt_device {
                     let data = format!("Device Name: {}\n
                     Device Alias: {}\n
