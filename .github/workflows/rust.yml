@@ -17,7 +17,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: check
@@ -33,7 +33,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: test
@@ -66,7 +66,7 @@ jobs:
           toolchain: stable
           override: true
           components: clippy
-      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
+      - run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
       - uses: actions-rs/cargo@v1
         with:
           command: clippy
@@ -94,15 +94,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Install libraries
+        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1.0.6
         with:
           toolchain: stable
           target: ${{ matrix.TARGET }}
           override: true
-          
-      - name: Install libraries
-        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libdbus-1-dev pkg-config alsa libasound2-dev libudev-dev
 
       - name: Cache Cargo
         uses: Swatinem/rust-cache@v2
@@ -124,7 +124,7 @@ jobs:
           args: --verbose --release --target=${{ matrix.TARGET }}
 
       - name: Rename build output
-        run: cp target/${{ matrix.TARGET }}/release/open_lights_coreeframe_template${{ matrix.EXTENSION }} open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
+        run: cp target/${{ matrix.TARGET }}/release/open_lights_core${{ matrix.EXTENSION }} open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v3
