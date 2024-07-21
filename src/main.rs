@@ -15,6 +15,7 @@ fn main() -> eframe::Result<()> {
             .with_minimize_button(false)
             .with_resizable(false)
             .with_title_shown(false)
+            .with_visible(true)
             .with_fullscreen(true)
             .with_icon(
                 eframe::icon_data::from_png_bytes(&include_bytes!("../assets/icon.ico")[..])
@@ -27,6 +28,8 @@ fn main() -> eframe::Result<()> {
         "Open Lights",
         native_options,
         Box::new(move |cc| {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::viewport::ViewportCommand::Visible(true));
             cc.egui_ctx
                 .send_viewport_cmd(egui::viewport::ViewportCommand::Fullscreen(true));
             egui_extras::install_image_loaders(&cc.egui_ctx);
