@@ -94,6 +94,14 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain stable --profile default --target ${{ matrix.TARGET }} -y
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
+      - name: Dependencies
+        run: sudo apt update && sudo apt upgrade && sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+
+      - name: PKG_CONFIG
+        run: |
+          echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          echo "PKG_CONFIG_ALLOW_CROSS=true:$PKG_CONFIG_ALLOW_CROSS" >> $GITHUB_ENV
+
       # For linux, it's necessary to use cross from the git repository to avoid glibc problems
       # Ref: https://github.com/cross-rs/cross/issues/1510
       - name: Install cross for linux
@@ -111,14 +119,6 @@ jobs:
           cache-all-crates: "false"
           save-if: "true"
           cache-provider: "github"
-
-      - name: Dependencies
-        run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
-
-      - name: PKG_CONFIG
-        run: |
-          export PKG_CONFIG_PATH="/usr/lib/arm-linux-gnueabihf/pkgconfig":$PKG_CONFIG_PATH >> $GITHUB_ENV
-          export PKG_CONFIG_ALLOW_CROSS="true":$PKG_CONFIG_ALLOW_CROSS >> $GITHUB_ENV
 
       - name: Build
         run: |
