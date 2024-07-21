@@ -95,7 +95,7 @@ jobs:
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Dependencies
-        run: sudo apt update && sudo apt upgrade && sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
+        run: sudo apt update && sudo apt upgrade && sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev libdbus-1-dev:armhf pkg-config
 
       - name: PKG_CONFIG
         run: |
