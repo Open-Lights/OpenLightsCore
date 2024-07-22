@@ -433,10 +433,18 @@ impl OpenLightsCore {
                 self.messenger.send(AudioThreadActions::Shuffle).unwrap();
             }
 
+            let visuals = ui.style().visuals.clone();
+            let inactive = visuals.widgets.inactive.bg_fill;
+            let active = visuals.selection.bg_fill;
+
             if ui
                 .add_sized(
                     button_size,
-                    egui::SelectableLabel::new(looping.load(Ordering::Relaxed), "🔁"),
+                    egui::Button::new("🔁").fill(if looping.load(Ordering::Relaxed) {
+                        active
+                    } else {
+                        inactive
+                    }),
                 )
                 .clicked()
             {
@@ -446,15 +454,16 @@ impl OpenLightsCore {
     }
 
     fn centered_volume_slider(&mut self, ui: &mut Ui) {
-        let slider_width = Vec2::new(200., 50.);
         let mut slider_percent = self.volume.load(Ordering::Relaxed);
+        let slider_size = Vec2::new(170., 50.);
 
         if ui
             .add_sized(
-                slider_width,
+                slider_size,
                 egui::Slider::new(&mut slider_percent, 0..=100)
-                    .text("Volume")
-                    .suffix("%"),
+                    .text(RichText::new("Volume").text_style(Body))
+                    .show_value(false)
+                    .trailing_fill(true),
             )
             .drag_stopped
         {
@@ -632,6 +641,9 @@ impl eframe::App for OpenLightsCore {
         if let Ok(notification) = self.bt_receiver.try_recv() {
             self.notifications.push_front(notification);
         }
+
+        #[cfg(not(target_arch = "x86_64"))]
+        ctx.set_cursor_icon(egui::CursorIcon::None);
 
         match self.current_screen {
             Screen::Playlist => self.show_playlist_screen(ctx),
