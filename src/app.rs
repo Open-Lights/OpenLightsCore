@@ -292,6 +292,8 @@ impl OpenLightsCore {
                         .underline(),
                 );
 
+                ui.add_space(10.);
+
                 ScrollArea::vertical()
                     .auto_shrink([true, true])
                     .max_height(200.)
@@ -539,8 +541,8 @@ impl OpenLightsCore {
                     }
 
                     if ui.add_sized(button_size, egui::Button::new("Connect")).clicked() && self.selected_bt_device != -1 {
+                        #[cfg(unix)]
                         if let Some(device) = &self.cached_selected_bt_device {
-                            #[cfg(unix)]
                             self.bluetooth.connect_to_device(&device.id);
                         } else {
                             let notification = Notification {
