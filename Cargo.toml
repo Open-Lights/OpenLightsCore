@@ -1,6 +1,6 @@
 [package]
 name = "open_lights_core"
-version = "0.0.1"
+version = "1.0.0-pre.1"
 authors = ["QPCrummer"]
 edition = "2021"
 include = ["LICENSE-APACHE", "LICENSE-MIT", "**/*.rs", "Cargo.toml"]

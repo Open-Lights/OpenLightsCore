@@ -28,6 +28,18 @@ jobs:
     - name: Building ${{ matrix.TARGET }}
       run: echo "${{ matrix.TARGET }}"
 
+    - name: Cache Cargo
+      uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "v0-rust"
+        env-vars: "CARGO CC CFLAGS CXX CMAKE RUST"
+        workspaces: ". -> target"
+        cache-targets: "true"
+        cache-on-failure: "false"
+        cache-all-crates: "false"
+        save-if: "true"
+        cache-provider: "github"
+
     - uses: actions/checkout@master
     - name: Install build dependencies - Rustup
       run: |
@@ -46,17 +58,9 @@ jobs:
       run: |
         cargo install cross
 
-    - name: Cache Cargo
-      uses: Swatinem/rust-cache@v2
-      with:
-        prefix-key: "v0-rust"
-        env-vars: "CARGO CC CFLAGS CXX CMAKE RUST"
-        workspaces: ". -> target"
-        cache-targets: "true"
-        cache-on-failure: "false"
-        cache-all-crates: "false"
-        save-if: "true"
-        cache-provider: "github"
+    - name: Install libraries
+      if: contains(matrix.TARGET, 'linux')
+      run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libasound2-dev libudev-dev libdbus-1-dev pkg-config
 
     - name: Build
       run: |
@@ -70,13 +74,36 @@ jobs:
         name: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
         path: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
 
-    - uses: svenstaro/upload-release-action@v2
-      name: Upload binaries to release
-      if: ${{ github.event_name == 'push' }}
-      with:
-        repo_token: ${{ secrets.GITHUB_TOKEN }}
-        file: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
-        asset_name: open_lights_core-${{ matrix.TARGET }}${{ matrix.EXTENSION }}
-        tag: ${{ github.ref }}
-        prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-        overwrite: true
+  upload_release:
+    permissions:
+      contents: write
+    needs: build
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 'Get Version'
+        uses: SebRollen/toml-action@v1.2.0
+        id: read_toml
+        with:
+          file: 'Cargo.toml'
+          field: 'package.version'
+
+      - name: Retrieve Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: libs/
+          merge-multiple: true
+
+      - name: Upload Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          tag_name: ${{ steps.read_toml.outputs.value }}
+          prerelease: ${{ contains(steps.read_toml.outputs.value, 'pre') || contains(steps.read_toml.outputs.value, 'beta') || contains(steps.read_toml.outputs.value, 'rc') }}
+          name: Open Lights Core ${{ steps.read_toml.outputs.value }}
+          files: libs/*
+          generate_release_notes: true
+          overwrite: true
