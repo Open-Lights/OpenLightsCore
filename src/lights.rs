@@ -148,7 +148,7 @@ pub fn interface_gpio(pin: &mut OutputPin, light_type: &LightType) {
 #[cfg(not(target_arch = "x86_64"))]
 pub fn get_gpio_map() -> HashMap<i32, OutputPin> {
     let mut map = HashMap::new();
-    for i in 0..15 {
+    for i in 0..16 {
         let gpio = Gpio::new().unwrap();
         let out = gpio.get(i).unwrap().into_output();
         map.insert(i as i32, out);
