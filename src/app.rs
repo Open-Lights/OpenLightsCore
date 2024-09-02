@@ -605,15 +605,15 @@ impl OpenLightsCore {
                                     if self.clicked_squares.contains(&index) {
                                         self.clicked_squares.remove(&index);
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        let pin = &self.gpio_pins.lock().unwrap();
+                                        let mut pin = self.gpio_pins.lock().unwrap();
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(pin.get(&(index as i32)).unwrap(), &LightType::Off);
+                                        interface_gpio(pin.get_mut(&(index as i32)).unwrap(), &LightType::Off);
                                     } else {
                                         self.clicked_squares.insert(index);
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        let pin = &self.gpio_pins.lock().unwrap();
+                                        let mut pin = self.gpio_pins.lock().unwrap();
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(pin.get(&(index as i32)).unwrap(), &LightType::On);
+                                        interface_gpio(pin.get_mut(&(index as i32)).unwrap(), &LightType::On);
                                     }
                                 }
                             }

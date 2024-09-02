@@ -55,9 +55,9 @@ pub fn start_light_thread(
                             );
 
                             #[cfg(not(target_arch = "x86_64"))]
-                            let pin = gpio_pins.lock().unwrap();
+                            let mut pin = gpio_pins.lock().unwrap();
                             #[cfg(not(target_arch = "x86_64"))]
-                            interface_gpio(pin.get(&(*channel as i32)).unwrap(), &target_time.light_type);
+                            interface_gpio(pin.get_mut(&(*channel as i32)).unwrap(), &target_time.light_type);
                         }
                         channel_data.index += 1;
                     }
@@ -134,7 +134,7 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
 }
 
 #[cfg(not(target_arch = "x86_64"))]
-pub fn interface_gpio(mut pin: &OutputPin, light_type: &LightType) {
+pub fn interface_gpio(pin: &mut OutputPin, light_type: &LightType) {
     match light_type {
         LightType::On => {
             pin.set_high();
