@@ -133,6 +133,7 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
 #[cfg(not(target_arch = "x86_64"))]
 pub fn interface_gpio(channel: &i8, gpio: &Gpio, light_type: &LightType) {
     let mut pin = gpio.get(*channel as u8).unwrap().into_output();
+    &pin.set_reset_on_drop(false);
     match light_type {
         LightType::On => {
             pin.set_high();
