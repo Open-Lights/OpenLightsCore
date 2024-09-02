@@ -1,5 +1,5 @@
 use std::cmp::PartialEq;
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
@@ -16,9 +16,6 @@ use egui::{
 };
 use walkdir::WalkDir;
 
-#[cfg(not(target_arch = "x86_64"))]
-use rppal::gpio::Gpio;
-
 use crate::audio_player::{
     gather_songs_from_path, get_atomic_float, locate_playlists, start_worker_thread, AudioPlayer,
     Song,
@@ -26,8 +23,11 @@ use crate::audio_player::{
 use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
+use crate::lights::get_gpio_map;
 #[cfg(not(target_arch = "x86_64"))]
 use crate::lights::{interface_gpio, LightType};
+#[cfg(not(target_arch = "x86_64"))]
+use rppal::gpio::OutputPin;
 
 #[derive(PartialEq, Default)]
 enum Screen {
@@ -56,6 +56,8 @@ pub struct OpenLightsCore {
     notifications: VecDeque<Notification>,
     bluetooth: BluetoothDevices,
     bt_receiver: Receiver<Notification>,
+    #[cfg(not(target_arch = "x86_64"))]
+    gpio_pins: Arc<Mutex<HashMap<i32, OutputPin>>>,
 }
 
 impl Default for OpenLightsCore {
@@ -63,9 +65,12 @@ impl Default for OpenLightsCore {
         let volume = Arc::new(AtomicI8::new(100));
         let clicked_index = Arc::new(AtomicUsize::new(0));
         let (tx_song_vec, rx_song_vec) = mpsc::channel();
+        #[cfg(not(target_arch = "x86_64"))]
+        let gpio_pins = Arc::new(Mutex::new(get_gpio_map()));
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new(
             Arc::clone(&volume),
             Arc::clone(&clicked_index),
+            Arc::clone(&gpio_pins),
         )));
 
         let (tx_bt, rx_bt) = mpsc::channel();
@@ -91,6 +96,8 @@ impl Default for OpenLightsCore {
             notifications: VecDeque::new(),
             bluetooth,
             bt_receiver: rx_bt,
+            #[cfg(not(target_arch = "x86_64"))]
+            gpio_pins,
         }
     }
 }
@@ -595,16 +602,18 @@ impl OpenLightsCore {
                                     )
                                     .clicked()
                                 {
-                                    #[cfg(not(target_arch = "x86_64"))]
-                                    let gpio = Gpio::new().unwrap();
                                     if self.clicked_squares.contains(&index) {
                                         self.clicked_squares.remove(&index);
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(&(index as i8), &gpio, &LightType::Off);
+                                        let pin = &self.gpio_pins.lock().unwrap();
+                                        #[cfg(not(target_arch = "x86_64"))]
+                                        interface_gpio(pin.get(&(index as i32)).unwrap(), &LightType::Off);
                                     } else {
                                         self.clicked_squares.insert(index);
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(&(index as i8), &gpio, &LightType::On);
+                                        let pin = &self.gpio_pins.lock().unwrap();
+                                        #[cfg(not(target_arch = "x86_64"))]
+                                        interface_gpio(pin.get(&(index as i32)).unwrap(), &LightType::On);
                                     }
                                 }
                             }

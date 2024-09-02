@@ -7,11 +7,12 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
-
+use std::collections::HashMap;
 use lofty::file::TaggedFileExt;
 use lofty::prelude::*;
 use lofty::probe::Probe;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Sink};
+use rppal::gpio::OutputPin;
 use walkdir::WalkDir;
 
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
@@ -61,6 +62,8 @@ pub struct AudioPlayer {
     light_thread_active: Arc<AtomicBool>,
     light_thread_toggle: Arc<AtomicBool>,
     light_thread_reset: Arc<AtomicBool>,
+    #[cfg(not(target_arch = "x86_64"))]
+    gpio_pins: Arc<Mutex<HashMap<i32, OutputPin>>>
 }
 
 unsafe impl Sync for AudioPlayer {}
@@ -73,7 +76,7 @@ impl PartialEq for Song {
 }
 
 impl AudioPlayer {
-    pub fn new(volume: Arc<AtomicI8>, clicked_index: Arc<AtomicUsize>) -> Self {
+    pub fn new(volume: Arc<AtomicI8>, clicked_index: Arc<AtomicUsize>, gpio_pins: Arc<Mutex<HashMap<i32, OutputPin>>>) -> Self {
         let (_stream, stream_handle) = OutputStream::try_default().unwrap();
         Self {
             song_vec: Vec::new(),
@@ -92,6 +95,7 @@ impl AudioPlayer {
             light_thread_active: Arc::new(AtomicBool::new(false)),
             light_thread_toggle: Arc::new(AtomicBool::new(false)),
             light_thread_reset: Arc::new(AtomicBool::new(false)),
+            gpio_pins,
         }
     }
 
@@ -111,6 +115,7 @@ impl AudioPlayer {
             Arc::clone(&self.light_thread_toggle),
             Arc::clone(&self.light_thread_active),
             Arc::clone(&self.light_thread_reset),
+            Arc::clone(&self.gpio_pins),
         );
     }
 
