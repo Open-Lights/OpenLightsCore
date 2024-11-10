@@ -23,6 +23,7 @@ use crate::audio_player::{
 use crate::bluetooth::{BluetoothDevice, BluetoothDevices};
 use crate::constants;
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
+#[cfg(not(target_arch = "x86_64"))]
 use crate::lights::get_gpio_map;
 #[cfg(not(target_arch = "x86_64"))]
 use crate::lights::{interface_gpio, LightType};
@@ -70,6 +71,7 @@ impl Default for OpenLightsCore {
         let audio_player = Arc::new(Mutex::new(AudioPlayer::new(
             Arc::clone(&volume),
             Arc::clone(&clicked_index),
+            #[cfg(not(target_arch = "x86_64"))]
             Arc::clone(&gpio_pins),
         )));
 

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 #[cfg(not(target_arch = "x86_64"))]
 use rppal::gpio::Gpio;
+#[cfg(not(target_arch = "x86_64"))]
 use rppal::gpio::OutputPin;
 
 pub fn start_light_thread(
@@ -41,6 +42,9 @@ pub fn start_light_thread(
                 for channel_data in &mut light_data {
                     channel_data.index = 0;
                 }
+                #[cfg(not(target_arch = "x86_64"))]
+                let mut pin = gpio_pins.lock().unwrap();
+                all_off(&mut *pin);
             }
             for channel_data in &mut light_data {
                 if let Some(target_time) = channel_data.data.get(channel_data.index) {
@@ -154,4 +158,11 @@ pub fn get_gpio_map() -> HashMap<i32, OutputPin> {
         map.insert(i as i32, out);
     }
     map
+}
+
+#[cfg(not(target_arch = "x86_64"))]
+pub fn all_off(pins: &mut HashMap<i32, OutputPin>) {
+    for index in 0..pins.len() {
+        interface_gpio(pins.get_mut(&(index as i32)).unwrap(), &LightType::Off);
+    }
 }
