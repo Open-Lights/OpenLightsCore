@@ -14,6 +14,15 @@ use rppal::gpio::Gpio;
 #[cfg(not(target_arch = "x86_64"))]
 use rppal::gpio::OutputPin;
 
+/// Creates a new thread for reading light data
+/// The lighting thread is in charge of toggling lights when the light file specifies.
+///
+/// song_path: The current path of the audio being played (to get the light file)
+/// millisecond_position: The current position in the audio
+/// toggle: Whether the light thread should be executing
+/// active: If the thread is current executing
+/// reset: If the thread should reset its data
+/// gpio_pins: A hashmap of all channels
 pub fn start_light_thread(
     song_path: &Path,
     millisecond_position: Arc<AtomicU64>,
@@ -73,26 +82,42 @@ pub fn start_light_thread(
     }
 }
 
+/// The status of the channel
+///
+/// On: Powered on
+/// Off: Powered off
 pub enum LightType {
     On,
     Off,
 }
+
+/// The data structure of a light file
+/// Contains all the channels and their respective data
 #[derive(Serialize, Deserialize, Debug)]
 struct Data {
     #[serde(flatten)]
     fields: HashMap<String, HashMap<String, i8>>,
 }
+
+/// The data structure of a light file
+///
+/// Example:
+///     "1000, 1" # 1000ms in, turn on
 struct LightData {
     timestamp: i32,
     light_type: LightType,
 }
 
+/// The data structure of a channel
 struct ChannelData {
     channels: Vec<i8>,
     data: Vec<LightData>,
     index: usize,
 }
 
+/// Gets the Light Data for an audio path as a vector
+///
+/// song_path: Path to the audio
 fn gather_light_data(song_path: String) -> Vec<ChannelData> {
     let path_string = song_path.replace("wav", "json");
     let path = PathBuf::from(path_string);
@@ -130,6 +155,9 @@ fn gather_light_data(song_path: String) -> Vec<ChannelData> {
     data_vec
 }
 
+/// Gets the channels from a string
+///
+/// channels_str: The string containing a list of channels
 fn parse_channels(channels_str: String) -> Vec<i8> {
     channels_str
         .split(',')
@@ -137,6 +165,10 @@ fn parse_channels(channels_str: String) -> Vec<i8> {
         .collect()
 }
 
+/// Sets the output for channels
+///
+/// pin: The GPIO pin to interface with
+/// light_type: Whether to turn it on or off
 #[cfg(not(target_arch = "x86_64"))]
 pub fn interface_gpio(pin: &mut OutputPin, light_type: &LightType) {
     match light_type {
@@ -149,6 +181,7 @@ pub fn interface_gpio(pin: &mut OutputPin, light_type: &LightType) {
     }
 }
 
+/// Gets a hashmap of GPIO pins
 #[cfg(not(target_arch = "x86_64"))]
 pub fn get_gpio_map() -> HashMap<i32, OutputPin> {
     let mut map = HashMap::new();
@@ -160,6 +193,9 @@ pub fn get_gpio_map() -> HashMap<i32, OutputPin> {
     map
 }
 
+/// Turns off all GPIO pins
+///
+/// pins: hashmap of GPIO pins
 #[cfg(not(target_arch = "x86_64"))]
 pub fn all_off(pins: &mut HashMap<i32, OutputPin>) {
     for index in 0..pins.len() {

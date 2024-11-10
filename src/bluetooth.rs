@@ -17,6 +17,8 @@ impl BluetoothDevices {
             bt_sender,
         }
     }
+
+    /// Searches for Bluetooth devices to pair
     #[cfg(unix)]
     pub fn refresh_bluetooth(&mut self) {
         let devices_clone = Arc::clone(&self.devices);
@@ -44,6 +46,7 @@ impl BluetoothDevices {
         });
     }
 
+    /// Connects to a Bluetooth device
     #[cfg(unix)]
     pub fn connect_to_device(&mut self, device_id: &DeviceId) {
         let bt_sender_clone = self.bt_sender.clone();
@@ -67,6 +70,7 @@ impl BluetoothDevices {
     }
 }
 
+/// Fetches a vector of Bluetooth devices waiting to be paired
 #[cfg(unix)]
 async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
@@ -95,6 +99,7 @@ async fn locate_devices() -> Result<Vec<BluetoothDevice>, BluetoothError> {
     Ok(bluetooth_devices)
 }
 
+/// Async connection to a Bluetooth devices
 #[cfg(unix)]
 async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
     let (_, session) = BluetoothSession::new().await?;
@@ -103,6 +108,14 @@ async fn connect_device(device_id: &DeviceId) -> Result<(), BluetoothError> {
         .await
 }
 
+/// Bluetooth Device data
+///
+/// name: The name of the devices
+/// paired: If the device is paired
+/// connected: If the device is connected
+/// id: The device Bluetooth id
+/// alias: The device's nickname
+/// mac_address: The MAC of the device
 pub struct BluetoothDevice {
     pub(crate) name: String,
     pub(crate) paired: bool,

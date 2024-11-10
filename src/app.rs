@@ -30,6 +30,13 @@ use crate::lights::{interface_gpio, LightType};
 #[cfg(not(target_arch = "x86_64"))]
 use rppal::gpio::OutputPin;
 
+/// The screens available in OpenLightsCore
+///
+/// Playlist: Lists all playlists
+/// Jukebox: The main GUI for interfacing with the program
+/// FileManager: Allows for deleting audio and playlists
+/// Audio: Bluetooth management screen
+/// Debug: Displays a light matrix for debugging relays
 #[derive(PartialEq, Default)]
 enum Screen {
     #[default]
@@ -148,6 +155,7 @@ impl OpenLightsCore {
         Default::default()
     }
 
+    /// Displays the Playlist screen
     fn show_playlist_screen(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             let _ = &self.top_menu(ui);
@@ -223,6 +231,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Checks to see if the playlist path is valid
     fn quick_playlist_valid(&mut self) -> bool {
         let path = format!("{}{}/", &**PLAYLIST_DIRECTORY, &self.playlist);
         for file in WalkDir::new(path).min_depth(2).max_depth(3) {
@@ -237,6 +246,7 @@ impl OpenLightsCore {
         false
     }
 
+    /// Shows the taskbar
     fn top_menu(&mut self, ui: &mut Ui) {
         egui::menu::bar(ui, |ui| {
             egui::widgets::global_dark_light_mode_buttons(ui);
@@ -264,6 +274,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Shows the main screen with audio controls and audio list
     fn show_jukebox_screen(&mut self, ctx: &Context) {
         ctx.request_repaint_after(Duration::from_millis(500));
 
@@ -350,6 +361,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Shows the File Manager screen
     fn show_file_manager_screen(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
@@ -359,6 +371,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Displays a centered progress bar for the current audio track
     fn centered_song_progress_display(&mut self, ui: &mut Ui) {
         let audio_player_safe = self.audio_player.lock().unwrap();
         let progress = &audio_player_safe.progress.clone();
@@ -397,15 +410,19 @@ impl OpenLightsCore {
         });
     }
 
+    /// Formats the time into mm:ss format
     fn format_time(seconds: i32) -> String {
         let minutes = seconds / 60;
         let remaining_seconds = seconds % 60;
         format!("{:02}:{:02}", minutes, remaining_seconds)
     }
+
+    /// Converts milliseconds to seconds
     fn milliseconds_to_seconds(ms: u64) -> i32 {
         (ms / 1000) as i32
     }
 
+    /// Creates centered buttons in the bottom taskbar of the Jukebox screen
     fn centered_buttons(&mut self, ui: &mut Ui) {
         let button_size = Vec2::new(40.0, 40.0); // Width and height of each button
 
@@ -464,6 +481,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Creates a centered volume slider of the Jukebox screen
     fn centered_volume_slider(&mut self, ui: &mut Ui) {
         let mut slider_percent = self.volume.load(Ordering::Relaxed);
         let slider_size = Vec2::new(170., 50.);
@@ -483,6 +501,7 @@ impl OpenLightsCore {
         }
     }
 
+    /// Shows the Audio screen
     fn show_bt_settings_screen(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
@@ -570,6 +589,7 @@ impl OpenLightsCore {
         });
     }
 
+    /// Shows the Debug screen
     fn show_debug_screen(&mut self, ctx: &Context) {
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             self.top_menu(ui);
@@ -627,6 +647,7 @@ impl OpenLightsCore {
     }
 }
 
+/// Creates the proper amount of space for the given amount of objects
 fn center_objects(object_size: Vec2, item_count: i8, ui: &mut Ui) {
     ui.add_space(get_center_offset(
         object_size,
@@ -636,6 +657,7 @@ fn center_objects(object_size: Vec2, item_count: i8, ui: &mut Ui) {
     ));
 }
 
+/// Provides the correct offset to center a given amount of objects
 fn get_center_offset(
     object_size: Vec2,
     item_count: i8,
@@ -668,6 +690,7 @@ impl eframe::App for OpenLightsCore {
     }
 }
 
+/// The selection type for the File Editor
 #[derive(PartialEq, Default)]
 enum Selection {
     #[default]
@@ -812,6 +835,12 @@ impl FileExplorer {
     }
 }
 
+/// Notification data
+///
+/// title: The title of the notification popup
+/// message: The body of the notification popup
+/// timer: The amount of time the popup should stay
+/// id: the random id for the popup UI
 #[derive(Clone)]
 pub struct Notification {
     pub title: String,
@@ -820,6 +849,7 @@ pub struct Notification {
     pub id: i32,
 }
 
+/// Renders notifications
 fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) {
     if !notifications.is_empty() {
         let screen_size = ctx.screen_rect();
@@ -879,6 +909,7 @@ fn show_notification(ctx: &Context, notifications: &mut VecDeque<Notification>) 
     }
 }
 
+/// Keeps track of time
 #[derive(Clone)]
 pub struct Timer {
     pub start_time: Instant,
@@ -893,6 +924,7 @@ impl Timer {
         }
     }
 
+    /// Counts the amount of time the timer has been active for
     fn update(&mut self) -> bool {
         let current_time = Instant::now();
         let elapsed_time = current_time.duration_since(self.start_time);

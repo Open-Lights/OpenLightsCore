@@ -5,6 +5,11 @@ use open_lights_core::constants::PLAYLIST_DIRECTORY;
 use std::fs;
 use std::path::Path;
 
+/// Open Lights Core
+/// This project reads light files produced by <https://github.com/Open-Lights/BeatMaker>, then
+/// outputs as a light show.
+///
+/// Read more on the wiki: <https://github.com/Open-Lights/OpenLightsCore/wiki>
 fn main() -> eframe::Result<()> {
     fs::create_dir_all(Path::new(&*PLAYLIST_DIRECTORY)).unwrap();
 
