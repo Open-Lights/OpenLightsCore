@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -29,8 +29,7 @@ pub fn start_light_thread(
     toggle: Arc<AtomicBool>,
     active: Arc<AtomicBool>,
     reset: Arc<AtomicBool>,
-    #[cfg(not(target_arch = "x86_64"))]
-    gpio_pins: Arc<Mutex<HashMap<i32, OutputPin>>>
+    #[cfg(not(target_arch = "x86_64"))] gpio_pins: Arc<Mutex<HashMap<i32, OutputPin>>>,
 ) {
     let mut light_data = gather_light_data(song_path.to_string_lossy().to_string());
 
@@ -52,14 +51,16 @@ pub fn start_light_thread(
                     channel_data.index = 0;
                 }
                 #[cfg(not(target_arch = "x86_64"))]
-                let mut pin = gpio_pins.lock().unwrap();
-                all_off(&mut *pin);
+                {
+                    let mut pin = gpio_pins.lock().unwrap();
+                    all_off(&mut *pin);
+                }
             }
             for channel_data in &mut light_data {
                 if let Some(target_time) = channel_data.data.get(channel_data.index) {
                     if target_time.timestamp <= millisecond_position.load(Ordering::Relaxed) as i32
                     {
-                        for channel in &channel_data.channels {
+                        for _channel in &channel_data.channels {
                             #[cfg(target_arch = "x86_64")]
                             println!(
                                 "Correct: {}; Actual: {}",
@@ -70,7 +71,10 @@ pub fn start_light_thread(
                             #[cfg(not(target_arch = "x86_64"))]
                             let mut pin = gpio_pins.lock().unwrap();
                             #[cfg(not(target_arch = "x86_64"))]
-                            interface_gpio(pin.get_mut(&(*channel as i32)).unwrap(), &target_time.light_type);
+                            interface_gpio(
+                                pin.get_mut(&(*_channel as i32)).unwrap(),
+                                &target_time.light_type,
+                            );
                         }
                         channel_data.index += 1;
                     }
