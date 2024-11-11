@@ -1,5 +1,5 @@
 use std::cmp::PartialEq;
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicI8, AtomicUsize, Ordering};
@@ -249,7 +249,7 @@ impl OpenLightsCore {
     /// Shows the taskbar
     fn top_menu(&mut self, ui: &mut Ui) {
         egui::menu::bar(ui, |ui| {
-            egui::widgets::global_dark_light_mode_buttons(ui);
+            egui::widgets::global_theme_preference_buttons(ui);
 
             if ui.button("Playlists").clicked() {
                 self.messenger.send(AudioThreadActions::Reset).unwrap();
@@ -629,13 +629,19 @@ impl OpenLightsCore {
                                         #[cfg(not(target_arch = "x86_64"))]
                                         let mut pin = self.gpio_pins.lock().unwrap();
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(pin.get_mut(&(index as i32)).unwrap(), &LightType::Off);
+                                        interface_gpio(
+                                            pin.get_mut(&(index as i32)).unwrap(),
+                                            &LightType::Off,
+                                        );
                                     } else {
                                         self.clicked_squares.insert(index);
                                         #[cfg(not(target_arch = "x86_64"))]
                                         let mut pin = self.gpio_pins.lock().unwrap();
                                         #[cfg(not(target_arch = "x86_64"))]
-                                        interface_gpio(pin.get_mut(&(index as i32)).unwrap(), &LightType::On);
+                                        interface_gpio(
+                                            pin.get_mut(&(index as i32)).unwrap(),
+                                            &LightType::On,
+                                        );
                                     }
                                 }
                             }
