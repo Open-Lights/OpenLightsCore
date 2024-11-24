@@ -14,6 +14,7 @@ use std::sync::mpsc::{Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{fs, thread};
+use std::collections::HashMap;
 use walkdir::WalkDir;
 
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
