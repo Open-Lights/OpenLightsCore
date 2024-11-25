@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use walkdir::WalkDir;
 
 use crate::constants::{AudioThreadActions, PLAYLIST_DIRECTORY};
-use crate::lights::start_light_thread;
+use crate::lights::{all_off, start_light_thread};
 
 #[derive(Clone, Default)]
 pub struct Song {
@@ -128,6 +128,13 @@ impl AudioPlayer {
     }
 
     fn kill_light_thread(&mut self) {
+        #[cfg(not(target_arch = "x86_64"))]
+        {
+            // Turn all lights off
+            let mut pin = self.gpio_pins.lock().unwrap();
+            all_off(&mut *pin);
+        }
+
         if self.light_thread_active.load(Ordering::Relaxed) {
             self.light_thread_toggle.store(true, Ordering::Relaxed);
         }

@@ -38,6 +38,7 @@ pub fn start_light_thread(
             // Ensure there aren't duplicate threads
             thread::sleep(Duration::from_millis(5));
         }
+
         active.store(true, Ordering::Relaxed);
         thread::spawn(move || loop {
             if toggle.load(Ordering::Relaxed) {
@@ -52,8 +53,8 @@ pub fn start_light_thread(
                 }
                 #[cfg(not(target_arch = "x86_64"))]
                 {
-                    let mut pin = gpio_pins.lock().unwrap();
-                    all_off(&mut *pin);
+                    let mut pin1 = gpio_pins.lock().unwrap();
+                    all_off(&mut *pin1);
                 }
             }
             for channel_data in &mut light_data {
